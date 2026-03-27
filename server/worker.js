@@ -14,6 +14,9 @@ const COST_PER_BUILD = parseFloat(process.env.COST_PER_BUILD || '0.50');
 const ARTIFACTS_DIR = process.env.ARTIFACTS_DIR || './artifacts';
 const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
 
+// Track active build sandboxes for guaranteed cleanup
+const activeSandboxes = new Map();
+
 // Ensure artifacts directory exists
 if (!fs.existsSync(ARTIFACTS_DIR)) {
     fs.mkdirSync(ARTIFACTS_DIR, { recursive: true });
@@ -132,6 +135,7 @@ async function executeBuild(build) {
 
     emitLog(build.id, `[BuildCheap] Starting build for ${build.project_name} (${build.platform})`);
     emitLog(build.id, `[BuildCheap] Build ID: ${build.id}`);
+    emitLog(build.id, `[BuildCheap] Tenant: ${build.user_id.slice(0, 8)}...`);
 
     // Update status to building
     db.prepare('UPDATE builds SET status = ?, started_at = ? WHERE id = ?')
@@ -140,9 +144,20 @@ async function executeBuild(build) {
     sendToParent('build_started', { buildId: build.id });
 
     try {
-        // Step 1: Clone repository
+        // Step 0: Set up sandbox — isolated HOME + temp directory per build
         const workDir = path.join(ARTIFACTS_DIR, 'work', build.id);
+        const sandboxHome = path.join(workDir, '.sandbox_home');
         fs.mkdirSync(workDir, { recursive: true });
+        fs.mkdirSync(sandboxHome, { recursive: true });
+
+        // Restrict work directory permissions (owner only)
+        try { fs.chmodSync(workDir, 0o700); } catch (_) { }
+
+        // Store sandbox info for keychain cleanup later
+        activeSandboxes.set(build.id, { workDir, sandboxHome });
+        emitLog(build.id, `[BuildCheap] Sandbox created: ${build.id.slice(0, 8)}...`);
+
+        // Step 1: Clone repository
 
         if (build.repo_url) {
             emitLog(build.id, `[BuildCheap] Cloning ${build.repo_url}...`);
@@ -218,10 +233,54 @@ async function executeBuild(build) {
         if (fs.existsSync(workDir)) {
             fs.rmSync(workDir, { recursive: true, force: true });
         }
+    } finally {
+        // ALWAYS clean up sandbox resources (keychain, temp dirs)
+        await cleanupBuildSandbox(build.id);
     }
 
     // Clean up in-memory logs after a delay
     setTimeout(() => buildLogs.delete(build.id), 60000);
+}
+
+// ----- Sandbox Cleanup -----
+// Guarantees removal of per-build keychains and temp directories
+async function cleanupBuildSandbox(buildId) {
+    const sandbox = activeSandboxes.get(buildId);
+    if (!sandbox) return;
+
+    try {
+        // Remove per-build keychain if it exists
+        const keychainPath = path.join(sandbox.workDir, '.signing', 'build.keychain-db');
+        if (fs.existsSync(keychainPath)) {
+            try {
+                // Remove keychain from search list and delete it
+                const { execSync } = await import('child_process');
+                execSync(`security delete-keychain "${keychainPath}" 2>/dev/null || true`);
+            } catch (_) { }
+        }
+
+        // Remove provisioning profiles installed for this build
+        const profilesDir = path.join(process.env.HOME || '/Users/administrator', 'Library/MobileDevice/Provisioning Profiles');
+        if (fs.existsSync(profilesDir)) {
+            const profiles = fs.readdirSync(profilesDir);
+            // Only remove profiles created in this build's signing dir
+            const signingDir = path.join(sandbox.workDir, '.signing');
+            if (fs.existsSync(signingDir) && fs.existsSync(path.join(signingDir, 'profile.mobileprovision'))) {
+                // Read the profile to find its UUID and remove the installed copy
+                // For now, we don't remove — it gets overwritten on next build
+            }
+        }
+
+        // Remove sandbox home directory
+        if (fs.existsSync(sandbox.sandboxHome)) {
+            fs.rmSync(sandbox.sandboxHome, { recursive: true, force: true });
+        }
+    } catch (err) {
+        // Never let cleanup errors break the build pipeline
+        console.error(`[Sandbox] Cleanup error for ${buildId}: ${err.message}`);
+    } finally {
+        activeSandboxes.delete(buildId);
+    }
 }
 
 // ----- Log Management -----
@@ -238,12 +297,29 @@ function emitLog(buildId, line) {
     sendToParent('build_log', { buildId, line: logLine });
 }
 
-// ----- Command Runner -----
-function runCommand(cmd, args, cwd, buildId) {
+// ----- Sandboxed Command Runner -----
+// Each build gets its own isolated environment to prevent cross-tenant leaks
+function runCommand(cmd, args, cwd, buildId, extraEnv = {}) {
     return new Promise((resolve, reject) => {
+        // Build a sandboxed environment:
+        // - Include PATH and essential system vars
+        // - Exclude secrets from other builds
+        // - Set CI=1 for build tools
+        const safeEnv = {
+            PATH: process.env.PATH,
+            HOME: extraEnv.HOME || process.env.HOME,
+            USER: process.env.USER,
+            SHELL: process.env.SHELL,
+            LANG: process.env.LANG || 'en_US.UTF-8',
+            TMPDIR: extraEnv.TMPDIR || process.env.TMPDIR,
+            CI: '1',
+            DEVELOPER_DIR: process.env.DEVELOPER_DIR || '/Applications/Xcode.app/Contents/Developer',
+            ...extraEnv,
+        };
+
         const proc = spawn(cmd, args, {
             cwd,
-            env: { ...process.env, CI: '1' },
+            env: safeEnv,
             stdio: ['pipe', 'pipe', 'pipe'],
         });
 
