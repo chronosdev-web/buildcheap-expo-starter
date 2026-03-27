@@ -14,7 +14,7 @@ router.get('/', (req, res) => {
 // POST /api/projects — create project
 router.post('/', (req, res) => {
     try {
-        const { name, slug, repo_url, platform, description } = req.body;
+        const { name, slug, repo_url, bundle_id, platform, description } = req.body;
 
         if (!name || !slug) {
             return res.status(400).json({ error: 'Name and slug are required' });
@@ -24,7 +24,7 @@ router.post('/', (req, res) => {
         const cleanSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '-');
 
         const id = crypto.randomUUID();
-        queries.createProject.run(id, req.user.id, name, cleanSlug, repo_url || null, platform || 'both', description || null);
+        queries.createProject.run(id, req.user.id, name, cleanSlug, repo_url || null, bundle_id || null, platform || 'both', description || null);
 
         const project = queries.getProjectById.get(id);
         res.status(201).json({ project });
@@ -47,7 +47,7 @@ router.get('/:id', (req, res) => {
 
 // PUT /api/projects/:id — update project
 router.put('/:id', (req, res) => {
-    const { name, repo_url, platform, description } = req.body;
+    const { name, repo_url, bundle_id, platform, description } = req.body;
     const existing = queries.getProjectById.get(req.params.id);
 
     if (!existing || existing.user_id !== req.user.id) {
@@ -57,6 +57,7 @@ router.put('/:id', (req, res) => {
     queries.updateProject.run(
         name || existing.name,
         repo_url !== undefined ? repo_url : existing.repo_url,
+        bundle_id !== undefined ? bundle_id : existing.bundle_id,
         platform || existing.platform,
         description !== undefined ? description : existing.description,
         req.params.id, req.user.id

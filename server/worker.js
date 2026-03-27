@@ -8,9 +8,11 @@ import fs from 'fs';
 
 // Import database directly — each process gets its own connection
 import db, { queries, deductCreditAndCreateBuild, refundBuildCredit } from './db.js';
+import { provisionSigningAssets, completeProvisioning } from './apple-api.js';
 
 const COST_PER_BUILD = parseFloat(process.env.COST_PER_BUILD || '0.50');
 const ARTIFACTS_DIR = process.env.ARTIFACTS_DIR || './artifacts';
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
 
 // Ensure artifacts directory exists
 if (!fs.existsSync(ARTIFACTS_DIR)) {
@@ -67,18 +69,28 @@ function handleQueueBuild(data) {
         if (project.user_id !== userId) throw new Error('Not your project');
 
         const user = queries.getUserById.get(userId);
-        if (user.credit_balance < COST_PER_BUILD) {
+        const isAdmin = ADMIN_EMAILS.includes(user.email?.toLowerCase());
+
+        if (!isAdmin && user.credit_balance < COST_PER_BUILD) {
             throw new Error('Insufficient credits. Please purchase more credits to continue building.');
         }
 
         const buildNumber = queries.getNextBuildNumber.get(projectId).next;
         const buildId = crypto.randomUUID();
 
-        // Atomic: deduct credit + create build record (persisted in SQLite)
-        deductCreditAndCreateBuild(
-            userId, buildId, projectId, buildNumber,
-            platform, commitHash || 'HEAD', commitMessage || 'Manual build'
-        );
+        if (isAdmin) {
+            // Admin: create build without deducting credits
+            queries.createBuild.run(
+                buildId, projectId, userId, buildNumber,
+                platform, commitHash || 'HEAD', commitMessage || 'Manual build'
+            );
+        } else {
+            // Regular user: atomic credit deduction + build creation
+            deductCreditAndCreateBuild(
+                userId, buildId, projectId, buildNumber,
+                platform, commitHash || 'HEAD', commitMessage || 'Manual build'
+            );
+        }
 
         sendToParent('build_queued', {
             build_id: buildId,
@@ -145,14 +157,12 @@ async function executeBuild(build) {
         await runCommand('npm', ['install', '--legacy-peer-deps'], workDir, build.id);
         emitLog(build.id, '✓ Dependencies installed');
 
-        // Step 3: Run EAS build
-        emitLog(build.id, `[BuildCheap] Running EAS build (${build.platform})...`);
-
-        if (build.platform === 'ios' && process.env.IOS_BUILD_HOST && process.env.IOS_BUILD_HOST !== 'localhost') {
-            emitLog(build.id, `[BuildCheap] Routing iOS build to macOS: ${process.env.IOS_BUILD_HOST}`);
-            await runRemoteBuild(build.id, workDir, build.platform);
+        // Step 3: Build native app
+        if (build.platform === 'ios') {
+            await buildIOS(build, workDir);
         } else {
-            await runCommand('npx', ['eas-cli', 'build', '--local', '--platform', build.platform, '--non-interactive'], workDir, build.id);
+            emitLog(build.id, `[BuildCheap] Building Android app...`);
+            await runCommand('npx', ['expo', 'run:android', '--variant', 'release', '--no-build-cache'], workDir, build.id);
         }
 
         emitLog(build.id, '✓ Build complete!');
@@ -253,30 +263,157 @@ function runCommand(cmd, args, cwd, buildId) {
     });
 }
 
-// ----- Remote Mac Build via SSH -----
-async function runRemoteBuild(buildId, workDir, platform) {
-    const host = process.env.IOS_BUILD_HOST;
-    const user = process.env.IOS_BUILD_USER || 'build';
-    const sshKey = process.env.IOS_BUILD_SSH_KEY;
-    const remotePath = `/tmp/buildcheap/${buildId}`;
-    const sshArgs = sshKey ? ['-i', sshKey] : [];
+// ----- iOS Build Pipeline -----
+async function buildIOS(build, workDir) {
+    const buildId = build.id;
 
-    emitLog(buildId, `[BuildCheap] SSH to ${user}@${host}...`);
+    // Step 3a: Prebuild native iOS project
+    emitLog(buildId, '[BuildCheap] Running expo prebuild...');
+    await runCommand('npx', ['expo', 'prebuild', '--platform', 'ios', '--no-install'], workDir, buildId);
+    emitLog(buildId, '✓ Prebuild complete');
 
-    await runCommand('rsync', [
-        '-avz', '--delete', '-e', `ssh ${sshArgs.join(' ')} -o StrictHostKeyChecking=no`,
-        `${workDir}/`, `${user}@${host}:${remotePath}/`
-    ], workDir, buildId);
+    // Step 3b: Install CocoaPods
+    emitLog(buildId, '[BuildCheap] Installing CocoaPods...');
+    await runCommand('pod', ['install'], path.join(workDir, 'ios'), buildId);
+    emitLog(buildId, '✓ CocoaPods installed');
 
-    await runCommand('ssh', [
-        ...sshArgs, '-o', 'StrictHostKeyChecking=no', `${user}@${host}`,
-        `cd ${remotePath} && npx eas-cli build --local --platform ${platform} --non-interactive`
-    ], workDir, buildId);
+    // Step 3c: Find workspace and scheme
+    const iosDir = path.join(workDir, 'ios');
+    const files = fs.readdirSync(iosDir);
+    const workspace = files.find(f => f.endsWith('.xcworkspace'));
+    const scheme = workspace ? workspace.replace('.xcworkspace', '') : 'App';
+    const archivePath = path.join(workDir, 'build', 'app.xcarchive');
+    const exportPath = path.join(workDir, 'build', 'export');
 
-    await runCommand('rsync', [
-        '-avz', '-e', `ssh ${sshArgs.join(' ')} -o StrictHostKeyChecking=no`,
-        `${user}@${host}:${remotePath}/`, `${workDir}/`
-    ], workDir, buildId);
+    // Step 3d: Check for Apple credentials (code signing)
+    let signingAssets = null;
+    try {
+        signingAssets = await provisionSigningAssets(build.user_id, build.bundle_id || 'com.buildcheap.app', workDir);
+    } catch (err) {
+        emitLog(buildId, `⚠ No Apple credentials found — building unsigned: ${err.message}`);
+    }
+
+    let signingFlags;
+    if (signingAssets && signingAssets.token) {
+        // Generate CSR and provision signing assets
+        emitLog(buildId, '[BuildCheap] Provisioning code signing...');
+        const csrArgs = [
+            'openssl', 'req', '-new', '-newkey', 'rsa:2048', '-nodes',
+            '-keyout', signingAssets.keyPath,
+            '-out', signingAssets.csrPath,
+            '-subj', '/CN=BuildCheap Distribution/O=BuildCheap/C=US',
+        ];
+        await runCommand(csrArgs[0], csrArgs.slice(1), workDir, buildId);
+
+        const csrContent = fs.readFileSync(signingAssets.csrPath, 'utf8');
+        const provResult = await completeProvisioning(
+            signingAssets.token, csrContent,
+            signingAssets.bundleId, signingAssets
+        );
+
+        // Import cert and profile into keychain
+        emitLog(buildId, '[BuildCheap] Installing signing certificate...');
+        await runCommand('openssl', [
+            'x509', '-inform', 'DER', '-in', signingAssets.certPath,
+            '-out', path.join(signingAssets.signingDir, 'dist.pem'),
+        ], workDir, buildId);
+
+        // Create p12 from cert + key
+        await runCommand('openssl', [
+            'pkcs12', '-export',
+            '-inkey', signingAssets.keyPath,
+            '-in', path.join(signingAssets.signingDir, 'dist.pem'),
+            '-out', signingAssets.p12Path,
+            '-passout', 'pass:buildcheap',
+        ], workDir, buildId);
+
+        // Import into temporary keychain
+        const keychainPath = path.join(signingAssets.signingDir, 'build.keychain-db');
+        await runCommand('security', ['create-keychain', '-p', 'buildcheap', keychainPath], workDir, buildId);
+        await runCommand('security', ['set-keychain-settings', '-t', '3600', keychainPath], workDir, buildId);
+        await runCommand('security', ['unlock-keychain', '-p', 'buildcheap', keychainPath], workDir, buildId);
+        await runCommand('security', ['import', signingAssets.p12Path, '-k', keychainPath, '-P', 'buildcheap', '-T', '/usr/bin/codesign'], workDir, buildId);
+        await runCommand('security', ['list-keychains', '-d', 'user', '-s', keychainPath, 'login.keychain-db'], workDir, buildId);
+        await runCommand('security', ['set-key-partition-list', '-S', 'apple-tool:,apple:,codesign:', '-s', '-k', 'buildcheap', keychainPath], workDir, buildId);
+
+        // Copy provisioning profile
+        const profilesDir = path.join(process.env.HOME || '/Users/administrator', 'Library/MobileDevice/Provisioning Profiles');
+        fs.mkdirSync(profilesDir, { recursive: true });
+        fs.copyFileSync(signingAssets.profilePath, path.join(profilesDir, `${provResult.profileUUID}.mobileprovision`));
+
+        emitLog(buildId, '✓ Code signing provisioned');
+
+        signingFlags = [
+            `DEVELOPMENT_TEAM=${signingAssets.teamId}`,
+            `CODE_SIGN_IDENTITY=iPhone Distribution`,
+            `PROVISIONING_PROFILE_SPECIFIER=${provResult.profileName}`,
+        ];
+    } else {
+        emitLog(buildId, '[BuildCheap] Building unsigned (no Apple credentials)...');
+        signingFlags = ['CODE_SIGNING_ALLOWED=NO'];
+    }
+
+    // Step 3e: Archive with xcodebuild
+    emitLog(buildId, `[BuildCheap] Compiling with xcodebuild (scheme: ${scheme})...`);
+    await runCommand('xcodebuild', [
+        '-workspace', workspace,
+        '-scheme', scheme,
+        '-configuration', 'Release',
+        '-sdk', 'iphoneos',
+        '-destination', 'generic/platform=iOS',
+        '-archivePath', archivePath,
+        'archive',
+        ...signingFlags,
+    ], iosDir, buildId);
+    emitLog(buildId, '✓ Archive complete');
+
+    // Step 3f: Export to .ipa (only if signed)
+    if (signingAssets && signingAssets.token) {
+        emitLog(buildId, '[BuildCheap] Exporting .ipa...');
+        fs.mkdirSync(exportPath, { recursive: true });
+
+        // Generate ExportOptions.plist
+        const plistPath = path.join(workDir, 'build', 'ExportOptions.plist');
+        const plistContent = generateExportPlist(
+            signingAssets.teamId,
+            signingAssets.bundleId,
+            'app-store'
+        );
+        fs.writeFileSync(plistPath, plistContent);
+
+        await runCommand('xcodebuild', [
+            '-exportArchive',
+            '-archivePath', archivePath,
+            '-exportPath', exportPath,
+            '-exportOptionsPlist', plistPath,
+        ], iosDir, buildId);
+        emitLog(buildId, '✓ .ipa exported!');
+    }
+}
+
+// Generate ExportOptions.plist for xcodebuild -exportArchive
+function generateExportPlist(teamId, bundleId, method) {
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>method</key>
+    <string>${method}</string>
+    <key>teamID</key>
+    <string>${teamId}</string>
+    <key>uploadBitcode</key>
+    <false/>
+    <key>uploadSymbols</key>
+    <true/>
+    <key>signingStyle</key>
+    <string>manual</string>
+    <key>provisioningProfiles</key>
+    <dict>
+        <key>${bundleId}</key>
+        <string>BuildCheap_${bundleId.replace(/\./g, '_')}</string>
+    </dict>
+</dict>
+</plist>`;
 }
 
 // ----- Artifact Finder -----

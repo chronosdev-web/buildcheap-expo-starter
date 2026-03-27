@@ -4,6 +4,9 @@ import { queries } from '../db.js';
 
 const router = Router();
 
+// Admin emails bypass credit checks
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+
 // POST /api/builds — trigger a new build (via worker process)
 router.post('/', (req, res) => {
     try {
@@ -23,9 +26,10 @@ router.post('/', (req, res) => {
             return res.status(404).json({ error: 'Project not found' });
         }
 
-        // Check credits
+        // Check credits (skip for admins)
         const COST = parseFloat(process.env.COST_PER_BUILD || '0.50');
-        if (req.user.credit_balance < COST) {
+        const isAdmin = ADMIN_EMAILS.includes(req.user.email?.toLowerCase());
+        if (!isAdmin && req.user.credit_balance < COST) {
             return res.status(402).json({
                 error: 'Insufficient credits. Please purchase more credits to continue building.',
                 balance: req.user.credit_balance,

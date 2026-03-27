@@ -32,12 +32,26 @@ db.exec(`
     name TEXT NOT NULL,
     slug TEXT NOT NULL,
     repo_url TEXT,
+    bundle_id TEXT,
     platform TEXT DEFAULT 'both',
     description TEXT,
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     UNIQUE(user_id, slug)
+  );
+
+  CREATE TABLE IF NOT EXISTS apple_credentials (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL UNIQUE,
+    issuer_id TEXT NOT NULL,
+    key_id TEXT NOT NULL,
+    private_key_encrypted TEXT NOT NULL,
+    iv TEXT NOT NULL,
+    auth_tag TEXT NOT NULL,
+    team_id TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
   CREATE TABLE IF NOT EXISTS builds (
@@ -84,55 +98,63 @@ db.exec(`
 
 // Prepared statements for common operations
 export const queries = {
-    // Users
-    createUser: db.prepare(`
+  // Users
+  createUser: db.prepare(`
     INSERT INTO users (id, email, password_hash, display_name, api_key)
     VALUES (?, ?, ?, ?, ?)
   `),
-    getUserByEmail: db.prepare('SELECT * FROM users WHERE email = ?'),
-    getUserById: db.prepare('SELECT * FROM users WHERE id = ?'),
-    getUserByApiKey: db.prepare('SELECT * FROM users WHERE api_key = ?'),
-    updateUserCredits: db.prepare('UPDATE users SET credit_balance = ? WHERE id = ?'),
-    setStripeCustomerId: db.prepare('UPDATE users SET stripe_customer_id = ? WHERE id = ?'),
-    updateUser: db.prepare('UPDATE users SET display_name = ?, updated_at = datetime(\'now\') WHERE id = ?'),
+  getUserByEmail: db.prepare('SELECT * FROM users WHERE email = ?'),
+  getUserById: db.prepare('SELECT * FROM users WHERE id = ?'),
+  getUserByApiKey: db.prepare('SELECT * FROM users WHERE api_key = ?'),
+  updateUserCredits: db.prepare('UPDATE users SET credit_balance = ? WHERE id = ?'),
+  setStripeCustomerId: db.prepare('UPDATE users SET stripe_customer_id = ? WHERE id = ?'),
+  updateUser: db.prepare('UPDATE users SET display_name = ?, updated_at = datetime(\'now\') WHERE id = ?'),
 
-    // Projects
-    createProject: db.prepare(`
-    INSERT INTO projects (id, user_id, name, slug, repo_url, platform, description)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+  // Projects
+  createProject: db.prepare(`
+    INSERT INTO projects (id, user_id, name, slug, repo_url, bundle_id, platform, description)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `),
-    getProjectsByUser: db.prepare('SELECT * FROM projects WHERE user_id = ? ORDER BY updated_at DESC'),
-    getProjectById: db.prepare('SELECT * FROM projects WHERE id = ?'),
-    deleteProject: db.prepare('DELETE FROM projects WHERE id = ? AND user_id = ?'),
-    updateProject: db.prepare(`
-    UPDATE projects SET name = ?, repo_url = ?, platform = ?, description = ?, updated_at = datetime('now')
+  getProjectsByUser: db.prepare('SELECT * FROM projects WHERE user_id = ? ORDER BY updated_at DESC'),
+  getProjectById: db.prepare('SELECT * FROM projects WHERE id = ?'),
+  deleteProject: db.prepare('DELETE FROM projects WHERE id = ? AND user_id = ?'),
+  updateProject: db.prepare(`
+    UPDATE projects SET name = ?, repo_url = ?, bundle_id = ?, platform = ?, description = ?, updated_at = datetime('now')
     WHERE id = ? AND user_id = ?
   `),
 
-    // Builds
-    createBuild: db.prepare(`
+  // Apple Credentials
+  saveAppleCredentials: db.prepare(`
+    INSERT OR REPLACE INTO apple_credentials (id, user_id, issuer_id, key_id, private_key_encrypted, iv, auth_tag, team_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `),
+  getAppleCredentials: db.prepare('SELECT * FROM apple_credentials WHERE user_id = ?'),
+  deleteAppleCredentials: db.prepare('DELETE FROM apple_credentials WHERE user_id = ?'),
+
+  // Builds
+  createBuild: db.prepare(`
     INSERT INTO builds (id, project_id, user_id, build_number, platform, commit_hash, commit_message)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `),
-    getBuildsByUser: db.prepare(`
+  getBuildsByUser: db.prepare(`
     SELECT b.*, p.name as project_name, p.slug as project_slug
     FROM builds b JOIN projects p ON b.project_id = p.id
     WHERE b.user_id = ? ORDER BY b.created_at DESC LIMIT ? OFFSET ?
   `),
-    getBuildsByProject: db.prepare(`
+  getBuildsByProject: db.prepare(`
     SELECT * FROM builds WHERE project_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?
   `),
-    getBuildById: db.prepare('SELECT * FROM builds WHERE id = ?'),
-    getNextBuildNumber: db.prepare('SELECT COALESCE(MAX(build_number), 0) + 1 as next FROM builds WHERE project_id = ?'),
-    updateBuildStatus: db.prepare(`
+  getBuildById: db.prepare('SELECT * FROM builds WHERE id = ?'),
+  getNextBuildNumber: db.prepare('SELECT COALESCE(MAX(build_number), 0) + 1 as next FROM builds WHERE project_id = ?'),
+  updateBuildStatus: db.prepare(`
     UPDATE builds SET status = ?, started_at = ?, completed_at = ?, duration_seconds = ?,
     artifact_url = ?, artifact_size = ?, log = ?, error_message = ?
     WHERE id = ?
   `),
-    getActiveBuildCount: db.prepare(`
+  getActiveBuildCount: db.prepare(`
     SELECT COUNT(*) as count FROM builds WHERE status IN ('queued', 'building')
   `),
-    getUserBuildStats: db.prepare(`
+  getUserBuildStats: db.prepare(`
     SELECT
       COUNT(*) as total_builds,
       SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as successful_builds,
@@ -142,39 +164,39 @@ export const queries = {
     FROM builds WHERE user_id = ?
   `),
 
-    // Credits
-    createCreditTransaction: db.prepare(`
+  // Credits
+  createCreditTransaction: db.prepare(`
     INSERT INTO credit_transactions (id, user_id, amount, type, description, stripe_payment_id, build_id)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `),
-    getCreditHistory: db.prepare(`
+  getCreditHistory: db.prepare(`
     SELECT * FROM credit_transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?
   `),
 };
 
 // Transaction helper for atomic credit deduction + build creation
 export const deductCreditAndCreateBuild = db.transaction((userId, buildId, projectId, buildNumber, platform, commitHash, commitMessage, cost) => {
-    const user = queries.getUserById.get(userId);
-    if (user.credit_balance < cost) {
-        throw new Error('Insufficient credits');
-    }
+  const user = queries.getUserById.get(userId);
+  if (user.credit_balance < cost) {
+    throw new Error('Insufficient credits');
+  }
 
-    queries.updateUserCredits.run(user.credit_balance - cost, userId);
-    queries.createBuild.run(buildId, projectId, userId, buildNumber, platform, commitHash, commitMessage);
-    queries.createCreditTransaction.run(
-        crypto.randomUUID(), userId, -cost, 'build',
-        `Build #${buildNumber} (${platform})`, null, buildId
-    );
+  queries.updateUserCredits.run(user.credit_balance - cost, userId);
+  queries.createBuild.run(buildId, projectId, userId, buildNumber, platform, commitHash, commitMessage);
+  queries.createCreditTransaction.run(
+    crypto.randomUUID(), userId, -cost, 'build',
+    `Build #${buildNumber} (${platform})`, null, buildId
+  );
 });
 
 // Refund credit for failed build
 export const refundBuildCredit = db.transaction((userId, buildId, cost) => {
-    const user = queries.getUserById.get(userId);
-    queries.updateUserCredits.run(user.credit_balance + cost, userId);
-    queries.createCreditTransaction.run(
-        crypto.randomUUID(), userId, cost, 'refund',
-        'Build failed — credit refunded', null, buildId
-    );
+  const user = queries.getUserById.get(userId);
+  queries.updateUserCredits.run(user.credit_balance + cost, userId);
+  queries.createCreditTransaction.run(
+    crypto.randomUUID(), userId, cost, 'refund',
+    'Build failed — credit refunded', null, buildId
+  );
 });
 
 export default db;

@@ -20,6 +20,8 @@ import authRoutes from './routes/auth.js';
 import projectRoutes from './routes/projects.js';
 import buildRoutes from './routes/builds.js';
 import creditRoutes from './routes/credits.js';
+import credentialRoutes from './routes/credentials.js';
+import uploadRoutes from './routes/upload.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -131,6 +133,8 @@ app.use('/api/auth/me', authMiddleware);
 app.use('/api/projects', authMiddleware, projectRoutes);
 app.use('/api/builds', authMiddleware, buildRoutes);
 app.use('/api/credits', authMiddleware, creditRoutes);
+app.use('/api/credentials', authMiddleware, credentialRoutes);
+app.use('/api/projects', authMiddleware, uploadRoutes);
 
 // Dashboard endpoint
 app.get('/api/dashboard', authMiddleware, (req, res) => {
