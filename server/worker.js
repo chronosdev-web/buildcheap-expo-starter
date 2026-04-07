@@ -261,13 +261,30 @@ async function executeBuild(build) {
 
     } catch (err) {
         const duration = Math.round((Date.now() - startTime) / 1000);
-        emitLog(build.id, `❌ Build failed: ${err.message}`);
 
-        const log = buildLogs.get(build.id)?.join('\n') || '';
+        let rootCause = err.message;
+        const currentLogs = buildLogs.get(build.id) || [];
+
+        // Root Cause Analysis: Scan backwards through logs to find the exact React Native/Metro crash
+        for (let i = currentLogs.length - 1; i >= 0; i--) {
+            const line = currentLogs[i];
+            if (line.includes('SyntaxError:') || line.includes('Module not found') || line.includes("Error: Can't resolve") || (line.includes('error:') && !line.includes('Command failed'))) {
+                if (!line.includes('warning:') && !line.includes('note:')) {
+                    // Prepend the exact code crash to the generic xcodebuild exit code
+                    rootCause = `🚨 ${line.replace(/\[\d{2}:\d{2}:\d{2}\]\s*/, '').trim()}\n\n(Triggered: ${err.message})`;
+                    break;
+                }
+            }
+        }
+
+        emitLog(build.id, `❌ Build failed: ${err.message}`);
+        if (rootCause !== err.message) emitLog(build.id, `[BuildCheap RCA] Isolated root cause: ${rootCause.split('\\n')[0]}`);
+
+        const log = currentLogs.join('\n') || '';
         db.prepare(`
       UPDATE builds SET status = 'error', completed_at = ?, duration_seconds = ?,
       log = ?, error_message = ? WHERE id = ?
-    `).run(new Date().toISOString(), duration, log, err.message, build.id);
+    `).run(new Date().toISOString(), duration, log, rootCause, build.id);
 
         sendToParent('build_complete', { buildId: build.id, status: 'error' });
         dispatchWebhooks(build.id, 'error', duration);
