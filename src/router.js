@@ -7,15 +7,18 @@ export class Router {
         this.currentRoute = null;
 
         window.addEventListener('hashchange', () => this.resolve());
-        window.addEventListener('load', () => this.resolve());
+
+        // Call resolve immediately since window.load might have already fired during async auth
+        this.resolve();
     }
 
     resolve() {
-        const hash = window.location.hash.slice(1) || '/';
-        const route = this.routes[hash] || this.routes['/'];
+        const fullHash = window.location.hash.slice(1) || '/';
+        const hashPath = fullHash.split('?')[0]; // Strip query params for routing
+        const route = this.routes[hashPath] || this.routes['/'];
 
-        if (this.currentRoute !== hash) {
-            this.currentRoute = hash;
+        if (this.currentRoute !== fullHash) {
+            this.currentRoute = fullHash;
             this.app.innerHTML = '';
 
             // Add page transition

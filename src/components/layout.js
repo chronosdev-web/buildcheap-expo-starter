@@ -1,9 +1,24 @@
-// Sidebar + Header wrapper for dashboard pages
+import { store } from '../store.js';
+import { auth } from '../api.js';
+
+function getPageTitle(activePage) {
+  const titles = {
+    'dashboard': 'Dashboard',
+    'projects': 'Projects',
+    'builds': 'Builds',
+    'credentials': 'Credentials',
+    'billing': 'Billing',
+    'settings': 'Settings',
+    'docs': 'Documentation'
+  };
+  return titles[activePage] || 'BuildCheap';
+}
 
 export function createDashboardLayout(activePage, pageContent) {
-    const layout = document.createElement('div');
-    layout.className = 'app-layout';
-    layout.innerHTML = `
+  const user = store.get('user') || {};
+  const layout = document.createElement('div');
+  layout.className = 'app-layout';
+  layout.innerHTML = `
     <div class="bg-grid"></div>
     
     <!-- Sidebar -->
@@ -30,11 +45,10 @@ export function createDashboardLayout(activePage, pageContent) {
         <a href="#/builds" class="sidebar-link ${activePage === 'builds' ? 'active' : ''}">
           <span class="link-icon">🔨</span>
           Builds
-          <span class="link-badge">3</span>
         </a>
-        <a href="#/updates" class="sidebar-link ${activePage === 'updates' ? 'active' : ''}">
-          <span class="link-icon">📡</span>
-          OTA Updates
+        <a href="#/cli" class="sidebar-link ${activePage === 'cli' ? 'active' : ''}">
+          <span class="link-icon">⌨️</span>
+          CLI
         </a>
         
         <div class="sidebar-section-label">Manage</div>
@@ -50,14 +64,23 @@ export function createDashboardLayout(activePage, pageContent) {
           <span class="link-icon">⚙️</span>
           Settings
         </a>
+        
+        <div class="sidebar-section-label">Support</div>
+        <a href="#/support" class="sidebar-link ${activePage === 'support' ? 'active' : ''}">
+          <span class="link-icon">🐞</span>
+          Report a Bug
+        </a>
       </nav>
       
       <div class="sidebar-footer">
-        <div class="sidebar-user">
-          <div class="avatar">G</div>
+        <div class="sidebar-user" id="logoutBtn" style="cursor:pointer;" title="Click to Logout">
+          ${user.avatar_url
+      ? `<img src="${user.avatar_url}" class="avatar" style="object-fit:cover;border-radius:50;width:32px;height:32px;" />`
+      : `<div class="avatar">${(user.display_name || 'U')[0].toUpperCase()}</div>`
+    }
           <div class="sidebar-user-info">
-            <div class="sidebar-user-name">Guy's Team</div>
-            <div class="sidebar-user-email">guy@buildcheap.dev</div>
+            <div class="sidebar-user-name">${user.display_name || 'User'}</div>
+            <div class="sidebar-user-email">Logout</div>
           </div>
         </div>
       </div>
@@ -71,16 +94,6 @@ export function createDashboardLayout(activePage, pageContent) {
           <h1>${getPageTitle(activePage)}</h1>
         </div>
         <div class="main-header-right">
-          <div class="search-box">
-            <span>🔍</span>
-            <span>Search...</span>
-            <span class="shortcut">⌘K</span>
-          </div>
-          <button class="btn-icon btn-ghost notification-btn">
-            🔔
-            <span class="notif-dot"></span>
-          </button>
-          <div class="avatar">G</div>
         </div>
       </header>
       
@@ -89,31 +102,29 @@ export function createDashboardLayout(activePage, pageContent) {
     </main>
   `;
 
-    // Insert page content
-    const contentSlot = layout.querySelector('#pageContent');
-    if (typeof pageContent === 'string') {
-        contentSlot.innerHTML = pageContent;
-    } else {
-        contentSlot.appendChild(pageContent);
+  // Insert page content
+  const contentSlot = layout.querySelector('#pageContent');
+  if (typeof pageContent === 'string') {
+    contentSlot.innerHTML = pageContent;
+  } else {
+    contentSlot.appendChild(pageContent);
+  }
+
+  // Mobile menu toggle
+  layout.querySelector('#menuToggle')?.addEventListener('click', () => {
+    layout.querySelector('#sidebar').classList.toggle('open');
+  });
+
+  // Logout trigger
+  layout.querySelector('#logoutBtn')?.addEventListener('click', async () => {
+    if (confirm('Are you sure you want to log out?')) {
+      try {
+        await auth.logout();
+      } catch (err) {
+        console.error('Logout failed:', err);
+      }
     }
+  });
 
-    // Mobile menu toggle
-    layout.querySelector('#menuToggle')?.addEventListener('click', () => {
-        layout.querySelector('#sidebar').classList.toggle('open');
-    });
-
-    return layout;
-}
-
-function getPageTitle(page) {
-    const titles = {
-        dashboard: 'Dashboard',
-        projects: 'Projects',
-        builds: 'Builds',
-        updates: 'OTA Updates',
-        credentials: 'Credentials',
-        billing: 'Billing',
-        settings: 'Settings'
-    };
-    return titles[page] || 'Dashboard';
+  return layout;
 }

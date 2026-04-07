@@ -1,28 +1,26 @@
 // Billing page — custom credit amounts, $5 minimum
 import { createDashboardLayout } from '../components/layout.js';
-import { credits } from '../api.js';
+import { credits, CONFIG } from '../api.js';
 
 export function renderBilling(container) {
   const content = `
     <div class="page-title-bar">
       <h2>Billing</h2>
-      <button class="btn btn-secondary" id="refreshBalance">Refresh</button>
     </div>
     
     <!-- Credit Balance -->
     <div class="card" style="padding:var(--space-xl);margin-bottom:var(--space-xl);border-color:var(--border-accent);">
-      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--space-md);">
+      <div class="flex-between-wrap">
         <div>
-          <div style="font-size:0.8125rem;color:var(--text-tertiary);margin-bottom:4px;">Credit Balance</div>
+          <div class="text-tertiary-sm">Credit Balance</div>
           <div style="font-size:2.5rem;font-weight:900;" id="creditBalance">
             <span class="text-gradient">$—</span>
           </div>
           <div style="font-size:0.875rem;color:var(--text-tertiary);margin-top:4px;" id="buildCount">— builds available</div>
         </div>
-        <div style="text-align:right;">
-          <div style="font-size:0.8125rem;color:var(--text-tertiary);margin-bottom:4px;">Cost per build</div>
-          <div style="font-size:1.5rem;font-weight:800;color:var(--text-primary);">$0.50</div>
-          <div style="font-size:0.75rem;color:var(--success);margin-top:2px;">Failed builds are free</div>
+        <div class="text-right">
+          <div class="text-tertiary-sm">Cost per build</div>
+          <div class="text-primary-xl">$${CONFIG.COST_PER_BUILD.toFixed(2)}</div>
         </div>
       </div>
     </div>
@@ -209,9 +207,4 @@ export function renderBilling(container) {
     }
   }
 
-  // Refresh button
-  container.querySelector('#refreshBalance').addEventListener('click', () => {
-    loadBalance();
-    loadHistory();
-  });
 }

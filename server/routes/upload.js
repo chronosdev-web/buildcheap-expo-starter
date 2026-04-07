@@ -32,7 +32,7 @@ router.post('/:id/upload', async (req, res) => {
 
         // Determine file type
         let ext = '.tar.gz';
-        if (contentType.includes('zip') || req.query.format === 'zip') {
+        if (contentType === 'application/zip' || req.query.format === 'zip') {
             ext = '.zip';
         }
 

@@ -22,6 +22,10 @@ import buildRoutes from './routes/builds.js';
 import creditRoutes from './routes/credits.js';
 import credentialRoutes from './routes/credentials.js';
 import uploadRoutes from './routes/upload.js';
+import webhookRoutes from './routes/webhooks.js';
+import secretRoutes from './routes/secrets.js';
+import orgRoutes from './routes/orgs.js';
+import supportRoutes from './routes/support.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -65,6 +69,10 @@ function startWorker() {
 
         if (msg.type === 'ready') {
             console.log('[Server] Worker process ready');
+        }
+
+        if (msg.type === 'build_error') {
+            console.error('[Server] IPC Worker Error:', msg.data.error || msg.data);
         }
     });
 
@@ -135,6 +143,10 @@ app.use('/api/builds', authMiddleware, buildRoutes);
 app.use('/api/credits', authMiddleware, creditRoutes);
 app.use('/api/credentials', authMiddleware, credentialRoutes);
 app.use('/api/projects', authMiddleware, uploadRoutes);
+app.use('/api/webhooks', authMiddleware, webhookRoutes);
+app.use('/api/projects/:id/secrets', authMiddleware, secretRoutes);
+app.use('/api/orgs', authMiddleware, orgRoutes);
+app.use('/api/support', authMiddleware, supportRoutes);
 
 // Dashboard endpoint
 app.get('/api/dashboard', authMiddleware, (req, res) => {
@@ -163,6 +175,11 @@ app.get('/api/dashboard', authMiddleware, (req, res) => {
         recent_builds: recentBuilds,
         recent_transactions: creditHistory,
     });
+});
+
+// Serve CLI for direct download (no npm needed)
+app.get('/cli/buildcheap.js', (req, res) => {
+    res.download(join(__dirname, '..', 'cli', 'buildcheap.js'), 'buildcheap.js');
 });
 
 // Serve build artifacts

@@ -2,8 +2,25 @@
 import { Router } from 'express';
 import { saveCredentials, getCredentials, deleteCredentials } from '../apple-credentials.js';
 import { testCredentials } from '../apple-api.js';
+import { queries } from '../db.js';
 
 const router = Router();
+
+// POST /api/credentials/github — save GitHub PAT
+router.post('/github', (req, res) => {
+    try {
+        const { token } = req.body;
+
+        // Allow deleting token by sending empty string
+        queries.updateUserGithubToken.run(token || null, req.user.id);
+
+        res.json({
+            message: token ? 'GitHub Access Token saved successfully' : 'GitHub Access Token removed',
+        });
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+});
 
 // POST /api/credentials/apple — save App Store Connect API Key
 router.post('/apple', async (req, res) => {

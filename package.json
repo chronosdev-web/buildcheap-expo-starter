@@ -3,12 +3,16 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "bin": {
+    "buildcheap": "./cli/buildcheap.js"
+  },
   "scripts": {
     "dev": "vite",
     "server": "node server/index.js",
     "dev:all": "node server/index.js & vite --host",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test server/tests"
   },
   "devDependencies": {
     "vite": "^6.0.0"

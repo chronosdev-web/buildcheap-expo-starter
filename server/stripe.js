@@ -63,8 +63,8 @@ export async function createCheckoutSession(userId, amountDollars, successUrl, c
             credits: credits.toString(),
             amount_dollars: amountDollars.toString(),
         },
-        success_url: successUrl || 'http://localhost:5173/#/billing?success=true',
-        cancel_url: cancelUrl || 'http://localhost:5173/#/billing?cancelled=true',
+        success_url: successUrl,
+        cancel_url: cancelUrl,
     });
 
     return session;
@@ -98,6 +98,28 @@ export async function handleWebhook(payload, signature) {
                 `Purchased ${credits} credits ($${amountDollars})`,
                 session.payment_intent, null
             );
+        }
+    }
+
+    // Handle refunds — claw back credits
+    if (event.type === 'charge.refunded') {
+        const charge = event.data.object;
+        const amountRefunded = charge.amount_refunded / 100; // Stripe uses cents
+
+        // Find the user by Stripe customer ID
+        const customerId = charge.customer;
+        if (customerId) {
+            const user = queries.getUserByStripeCustomerId?.get(customerId);
+            if (user) {
+                const newBalance = Math.max(0, user.credit_balance - amountRefunded);
+                queries.updateUserCredits.run(newBalance, user.id);
+                queries.createCreditTransaction.run(
+                    crypto.randomUUID(), user.id, -amountRefunded, 'refund',
+                    `Stripe refund (-$${amountRefunded.toFixed(2)})`,
+                    charge.payment_intent, null
+                );
+                console.log(`[Stripe] Refund processed: -$${amountRefunded} for user ${user.email}`);
+            }
         }
     }
 

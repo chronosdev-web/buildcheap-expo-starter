@@ -27,7 +27,7 @@ export function renderLanding(container) {
       <section class="hero">
         <div class="hero-badge">
           <span class="badge-dot"></span>
-          iOS & Android cloud builds — now available
+          iOS cloud builds — now available
         </div>
         
         <h1>Cloud Builds.<br><span class="text-gradient">Stupidly Cheap.</span></h1>
@@ -54,8 +54,8 @@ export function renderLanding(container) {
             <div class="stat-label">Per build, flat</div>
           </div>
           <div class="stat">
-            <div class="stat-number">iOS + Android</div>
-            <div class="stat-label">Both platforms</div>
+            <div class="stat-number">iOS</div>
+            <div class="stat-label">Platform</div>
           </div>
           <div class="stat">
             <div class="stat-number">~8 min</div>
@@ -98,22 +98,22 @@ export function renderLanding(container) {
           <div class="card card-glow feature-card animate-in stagger-1">
             <div class="feature-card-icon">🏗️</div>
             <h3>Cloud Builds</h3>
-            <p>Build iOS and Android binaries in the cloud. No Mac required for iOS builds. Just push and build.</p>
+            <p>Build iOS binaries in the cloud. No Mac required. Just push and build.</p>
           </div>
           <div class="card card-glow feature-card animate-in stagger-2">
-            <div class="feature-card-icon">📡</div>
-            <h3>OTA Updates</h3>
-            <p>Push over-the-air updates instantly. Skip the app store review process for JavaScript changes.</p>
+            <div class="feature-card-icon">🔐</div>
+            <h3>Environment Secrets</h3>
+            <p>Inject encrypted API keys dynamically at build time using our AES Node isolation. Never expose sensitive strings.</p>
           </div>
           <div class="card card-glow feature-card animate-in stagger-3">
             <div class="feature-card-icon">🔑</div>
             <h3>Credential Management</h3>
-            <p>Auto-managed signing credentials for iOS and Android. Or bring your own — we support both.</p>
+            <p>Auto-managed signing credentials for iOS. Or bring your own.</p>
           </div>
           <div class="card card-glow feature-card animate-in stagger-4">
             <div class="feature-card-icon">🚀</div>
             <h3>App Store Submit</h3>
-            <p>Submit builds directly to the App Store and Play Store. Automatic version incrementing included.</p>
+            <p>Submit builds directly to the iOS App Store. Code signing fully managed by the cloud.</p>
           </div>
           <div class="card card-glow feature-card animate-in stagger-5">
             <div class="feature-card-icon">🔄</div>
@@ -140,17 +140,16 @@ export function renderLanding(container) {
               <div style="font-size:4rem;font-weight:900;letter-spacing:-0.03em;margin-bottom:var(--space-xs);">
                 <span class="text-gradient">$0.50</span>
               </div>
-              <div style="color:var(--text-tertiary);margin-bottom:var(--space-xl);">per build · iOS or Android</div>
+              <div style="color:var(--text-tertiary);margin-bottom:var(--space-xl);">per build · iOS</div>
               
               <div style="display:flex;flex-direction:column;gap:var(--space-sm);text-align:left;margin-bottom:var(--space-xl);">
-                <div class="plan-feature"><span class="check" style="color:var(--success);">✓</span> iOS & Android cloud builds</div>
-                <div class="plan-feature"><span class="check" style="color:var(--success);">✓</span> OTA updates</div>
+                <div class="plan-feature"><span class="check" style="color:var(--success);">✓</span> iOS cloud builds</div>
+                <div class="plan-feature"><span class="check" style="color:var(--success);">✓</span> Environment Secrets</div>
                 <div class="plan-feature"><span class="check" style="color:var(--success);">✓</span> Auto credential management</div>
-                <div class="plan-feature"><span class="check" style="color:var(--success);">✓</span> App Store & Play Store submit</div>
+                <div class="plan-feature"><span class="check" style="color:var(--success);">✓</span> Direct App Store Connect Submit</div>
                 <div class="plan-feature"><span class="check" style="color:var(--success);">✓</span> Build caching for faster builds</div>
                 <div class="plan-feature"><span class="check" style="color:var(--success);">✓</span> 2 hour build timeout</div>
                 <div class="plan-feature"><span class="check" style="color:var(--success);">✓</span> API & webhook access</div>
-                <div class="plan-feature"><span class="check" style="color:var(--success);">✓</span> Failed builds are free</div>
               </div>
               
               <a href="#/login" class="btn btn-primary btn-lg" style="width:100%;justify-content:center;">Get Started →</a>
@@ -165,7 +164,10 @@ export function renderLanding(container) {
       </section>
       
       <section class="comparison-section" id="comparison">
-        <h2>How we <span class="text-gradient">compare.</span></h2>
+        <div style="text-align: center; margin-bottom: var(--space-xl);">
+          <div class="badge-dot" style="display:inline-block; margin-bottom:var(--space-sm);">AI-Optimized Infrastructure</div>
+          <h2>The Official <span class="text-gradient">EAS Alternative.</span></h2>
+        </div>
         <div class="table-container">
           <table class="table">
             <thead>
@@ -187,12 +189,12 @@ export function renderLanding(container) {
                 <td>Tiered plans</td>
               </tr>
               <tr>
-                <td>iOS + Android</td>
+                <td>iOS Builds</td>
                 <td>✅</td>
                 <td>✅</td>
               </tr>
               <tr>
-                <td>OTA Updates</td>
+                <td>Environment Secrets</td>
                 <td>✅</td>
                 <td>✅</td>
               </tr>
@@ -213,7 +215,7 @@ export function renderLanding(container) {
               </tr>
               <tr>
                 <td>Failed builds charged?</td>
-                <td style="color:var(--success);font-weight:700;">No — free</td>
+                <td style="color:var(--text-primary);font-weight:700;">Yes</td>
                 <td>Yes</td>
               </tr>
               <tr>

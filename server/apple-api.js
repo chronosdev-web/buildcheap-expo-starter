@@ -3,7 +3,10 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { getCredentials, generateASCToken } from './apple-credentials.js';
+import { getCredentials, generateASCToken, decryptKey } from './apple-credentials.js';
+
+// Re-export decryptKey so worker.js can import it from this module
+export { decryptKey };
 
 const ASC_BASE = 'https://api.appstoreconnect.apple.com/v1';
 
@@ -90,7 +93,7 @@ export async function createCertificate(token, csrContent) {
 }
 
 // Get or create a distribution certificate
-export async function getOrCreateCertificate(token, csrContent) {
+export async function getOrCreateCertificate(token, csrContent, forceNew = false) {
     // First check for existing valid certs
     const existing = await listCertificates(token);
     const valid = existing.filter(c =>
@@ -98,8 +101,19 @@ export async function getOrCreateCertificate(token, csrContent) {
         new Date(c.attributes.expirationDate) > new Date()
     );
 
-    if (valid.length > 0) {
+    if (!forceNew && valid.length > 0) {
         return { cert: valid[0], created: false };
+    }
+
+    // If forceNew, we must revoke existing certs to avoid hitting the 3-cert limit
+    if (forceNew) {
+        for (const c of valid) {
+            try {
+                await ascFetch(`/certificates/${c.id}`, token, { method: 'DELETE' });
+            } catch (err) {
+                console.error(`Failed to revoke cert ${c.id}:`, err.message);
+            }
+        }
     }
 
     // Create new cert
@@ -211,31 +225,32 @@ export async function provisionSigningAssets(userId, bundleId, workDir) {
 
 // After CSR is generated on the Mac Mini, call this to provision via Apple API
 export async function completeProvisioning(token, csrContent, bundleId, signingAssets) {
-    // Step 2: Get or create distribution certificate
-    const { cert } = await getOrCreateCertificate(token, csrContent);
+    // getOrCreateCertificate now knows whether to force generation of a new cert if the local key is new
+    const certResult = await getOrCreateCertificate(token, csrContent, signingAssets.isNewKey);
+    const certId = certResult.cert.id;
 
-    // Save the certificate content to disk
-    const certContent = cert.attributes.certificateContent;
-    fs.writeFileSync(signingAssets.certPath, Buffer.from(certContent, 'base64'));
+    // Save the downloaded certificate to disk
+    const certContent = certResult.cert.attributes.certificateContent;
+    const certBuffer = Buffer.from(certContent, 'base64');
+    fs.writeFileSync(signingAssets.certPath, certBuffer);
 
-    // Step 3: Get or register bundle ID
-    const { bundleIdResource } = await getOrCreateBundleId(token, bundleId);
+    // 2. Register / Get Bundle ID
+    const bundleResult = await getOrCreateBundleId(token, bundleId);
+    const bundleIdResourceId = bundleResult.bundleIdResource.id;
 
-    // Step 4: Create provisioning profile
-    const profileName = `BuildCheap_${bundleId.replace(/\./g, '_')}_${Date.now()}`;
-    const profile = await createProvisioningProfile(
-        token, cert.id, bundleIdResource.id, profileName
-    );
+    // 3. Create Provisioning Profile (always recreate to ensure cert linkage)
+    const profileName = `BuildCheap ${bundleId} ${Date.now()}`;
+    const profileData = await createProvisioningProfile(token, certId, bundleIdResourceId, profileName);
 
-    // Save provisioning profile to disk
-    const profileContent = profile.attributes.profileContent;
-    fs.writeFileSync(signingAssets.profilePath, Buffer.from(profileContent, 'base64'));
+    const profileContent = profileData.attributes.profileContent;
+    const profileBuffer = Buffer.from(profileContent, 'base64');
+    fs.writeFileSync(signingAssets.profilePath, profileBuffer);
 
     return {
-        certId: cert.id,
-        profileId: profile.id,
-        profileName: profile.attributes.name,
-        profileUUID: profile.attributes.uuid,
+        certId: certId,
+        profileId: profileData.id,
+        profileName: profileData.attributes.name,
+        profileUUID: profileData.attributes.uuid,
         teamId: signingAssets.teamId,
     };
 }

@@ -5,7 +5,12 @@ import { queries } from '../db.js';
 const router = Router();
 
 // Admin emails bypass credit checks
-const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+const ADMIN_EMAILS = [
+    ...(process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean),
+    'guy@example.com',
+    'myonlyfriendischatgpt@gmail.com',
+    'guy_test@test.com' // including previous tests just in case
+];
 
 // POST /api/builds — trigger a new build (via worker process)
 router.post('/', (req, res) => {
@@ -87,7 +92,11 @@ router.get('/:id/log', (req, res) => {
     if (!build || build.user_id !== req.user.id) {
         return res.status(404).json({ error: 'Build not found' });
     }
-    res.json({ log: build.log || '' });
+    let logStr = build.log || '';
+    if (logStr.length > 50000) {
+        logStr = '... [Log truncated to last 50,000 characters for browser performance] ...\n\n' + logStr.slice(-50000);
+    }
+    res.json({ log: logStr });
 });
 
 export default router;

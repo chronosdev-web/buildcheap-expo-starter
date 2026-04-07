@@ -2,17 +2,24 @@
 // This runs as a separate Node.js process via child_process.fork()
 // Communicates with the main server via IPC messages
 import 'dotenv/config';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
+import crypto from 'crypto';
 
 // Import database directly — each process gets its own connection
 import db, { queries, deductCreditAndCreateBuild, refundBuildCredit } from './db.js';
-import { provisionSigningAssets, completeProvisioning } from './apple-api.js';
+import { provisionSigningAssets, completeProvisioning, decryptKey } from './apple-api.js';
 
 const COST_PER_BUILD = parseFloat(process.env.COST_PER_BUILD || '0.50');
-const ARTIFACTS_DIR = process.env.ARTIFACTS_DIR || './artifacts';
-const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+const ARTIFACTS_DIR = path.resolve(process.env.ARTIFACTS_DIR || './artifacts');
+const ADMIN_EMAILS = [
+    ...(process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean),
+    'guy@example.com',
+    'myonlyfriendischatgpt@gmail.com',
+    'guy_test@test.com'
+];
 
 // Track active build sandboxes for guaranteed cleanup
 const activeSandboxes = new Map();
@@ -91,7 +98,7 @@ function handleQueueBuild(data) {
             // Regular user: atomic credit deduction + build creation
             deductCreditAndCreateBuild(
                 userId, buildId, projectId, buildNumber,
-                platform, commitHash || 'HEAD', commitMessage || 'Manual build'
+                platform, commitHash || 'HEAD', commitMessage || 'Manual build', COST_PER_BUILD
             );
         }
 
@@ -113,7 +120,7 @@ function handleQueueBuild(data) {
 // Pull next queued build from SQLite and process it
 async function processNextInQueue() {
     const next = db.prepare(
-        `SELECT b.*, p.name as project_name, p.repo_url
+        `SELECT b.*, p.name as project_name, p.repo_url, p.bundle_id
      FROM builds b JOIN projects p ON b.project_id = p.id
      WHERE b.status = 'queued' ORDER BY b.created_at ASC LIMIT 1`
     ).get();
@@ -148,28 +155,67 @@ async function executeBuild(build) {
         const workDir = path.join(ARTIFACTS_DIR, 'work', build.id);
         const sandboxHome = path.join(workDir, '.sandbox_home');
         fs.mkdirSync(workDir, { recursive: true });
-        fs.mkdirSync(sandboxHome, { recursive: true });
 
         // Restrict work directory permissions (owner only)
         try { fs.chmodSync(workDir, 0o700); } catch (_) { }
 
         // Store sandbox info for keychain cleanup later
-        activeSandboxes.set(build.id, { workDir, sandboxHome });
+        const secretRows = queries.getDecryptedSecrets.all(build.project_id);
+        const projectSecrets = {};
+        for (const row of secretRows) {
+            try { projectSecrets[row.key_name] = decryptKey(row.value_encrypted, row.iv, row.auth_tag); }
+            catch (err) { emitLog(build.id, `⚠ Failed to decrypt secret: ${row.key_name}`); }
+        }
+
+        activeSandboxes.set(build.id, { workDir, sandboxHome, projectSecrets });
         emitLog(build.id, `[BuildCheap] Sandbox created: ${build.id.slice(0, 8)}...`);
 
         // Step 1: Clone repository
 
         if (build.repo_url) {
             emitLog(build.id, `[BuildCheap] Cloning ${build.repo_url}...`);
-            await runCommand('git', ['clone', '--depth', '1', build.repo_url, '.'], workDir, build.id);
+
+            // Inject GitHub PAT for private repositories
+            const user = db.prepare('SELECT github_token FROM users WHERE id = ?').get(build.user_id);
+            let cloneUrl = build.repo_url;
+            if (user?.github_token && cloneUrl.startsWith('https://github.com/')) {
+                cloneUrl = cloneUrl.replace('https://github.com/', `https://git:${user.github_token}@github.com/`);
+            }
+
+            try {
+                const repoTemp = 'source_repo';
+                await runCommand('git', ['clone', '--depth', '1', cloneUrl, repoTemp], workDir, build.id);
+                const repoPath = path.join(workDir, repoTemp);
+                for (const file of fs.readdirSync(repoPath)) {
+                    fs.renameSync(path.join(repoPath, file), path.join(workDir, file));
+                }
+                fs.rmdirSync(repoPath);
+            } catch (cloneErr) {
+                if (user?.github_token) {
+                    cloneErr.message = cloneErr.message.replaceAll(user.github_token, '[REDACTED_GITHUB_TOKEN]');
+                }
+                throw cloneErr;
+            }
             emitLog(build.id, '✓ Repository cloned');
         } else {
             emitLog(build.id, '⚠ No repository URL configured — using uploaded project files');
         }
 
+        // Ensure sandbox home exists AFTER clone
+        fs.mkdirSync(sandboxHome, { recursive: true });
+
         // Step 2: Install dependencies
         emitLog(build.id, '[BuildCheap] Installing dependencies...');
-        await runCommand('npm', ['install', '--legacy-peer-deps'], workDir, build.id);
+        await runCommand('yarn', ['install', '--ignore-scripts'], workDir, build.id);
+
+        const stripePatchPath = path.join(workDir, 'node_modules/@stripe/stripe-react-native/ios/StripeSwiftInterop.h');
+        if (fs.existsSync(stripePatchPath)) {
+            emitLog(build.id, '[BuildCheap] Applying Xcode 16 Swift ABI patch to Stripe SDK...');
+            let content = fs.readFileSync(stripePatchPath, 'utf8');
+            content = content.replace('NS_ENUM(NSUInteger, STPPaymentStatus)', 'NS_ENUM(NSInteger, STPPaymentStatus)');
+            fs.writeFileSync(stripePatchPath, content);
+        }
+
         emitLog(build.id, '✓ Dependencies installed');
 
         // Step 3: Build native app
@@ -208,6 +254,7 @@ async function executeBuild(build) {
     `).run(new Date().toISOString(), duration, artifactUrl, artifactSize, log, build.id);
 
         sendToParent('build_complete', { buildId: build.id, status: 'success' });
+        dispatchWebhooks(build.id, 'success', duration);
 
         // Cleanup work directory
         fs.rmSync(workDir, { recursive: true, force: true });
@@ -222,11 +269,8 @@ async function executeBuild(build) {
       log = ?, error_message = ? WHERE id = ?
     `).run(new Date().toISOString(), duration, log, err.message, build.id);
 
-        // Refund credit
-        refundBuildCredit(build.user_id, build.id, COST_PER_BUILD);
-        emitLog(build.id, '💰 Credit refunded due to build failure');
-
         sendToParent('build_complete', { buildId: build.id, status: 'error' });
+        dispatchWebhooks(build.id, 'error', duration);
 
         // Cleanup
         const workDir = path.join(ARTIFACTS_DIR, 'work', build.id);
@@ -303,11 +347,14 @@ function runCommand(cmd, args, cwd, buildId, extraEnv = {}) {
     return new Promise((resolve, reject) => {
         // Build a sandboxed environment:
         // - Include PATH and essential system vars
+        // - Load decrypted project secrets dynamically from activeSandbox state
         // - Exclude secrets from other builds
         // - Set CI=1 for build tools
+        const sandbox = activeSandboxes.get(buildId) || {};
         const safeEnv = {
             PATH: process.env.PATH,
             HOME: extraEnv.HOME || process.env.HOME,
+            ...sandbox.projectSecrets,
             USER: process.env.USER,
             SHELL: process.env.SHELL,
             LANG: process.env.LANG || 'en_US.UTF-8',
@@ -342,11 +389,50 @@ function runCommand(cmd, args, cwd, buildId, extraEnv = {}) {
 // ----- iOS Build Pipeline -----
 async function buildIOS(build, workDir) {
     const buildId = build.id;
+    const sandboxHome = path.join(workDir, '.sandbox_home');
 
     // Step 3a: Prebuild native iOS project
+    if (build.bundle_id) {
+        emitLog(buildId, `[BuildCheap] Injecting dashboard Bundle ID (${build.bundle_id}) into Expo manifest...`);
+        const appJsonPath = path.join(workDir, 'app.json');
+        if (fs.existsSync(appJsonPath)) {
+            try {
+                let appJson = JSON.parse(fs.readFileSync(appJsonPath, 'utf8'));
+                appJson.expo = appJson.expo || {};
+                appJson.expo.ios = appJson.expo.ios || {};
+                appJson.expo.ios.bundleIdentifier = build.bundle_id;
+                appJson.expo.android = appJson.expo.android || {};
+                appJson.expo.android.package = build.bundle_id;
+                fs.writeFileSync(appJsonPath, JSON.stringify(appJson, null, 2));
+            } catch (e) {
+                emitLog(buildId, `⚠ Failed to inject Bundle ID into app.json: ${e.message}`);
+            }
+        }
+    }
+
     emitLog(buildId, '[BuildCheap] Running expo prebuild...');
-    await runCommand('npx', ['expo', 'prebuild', '--platform', 'ios', '--no-install'], workDir, buildId);
+    await runCommand('npx', ['expo', 'prebuild', '--platform', 'ios', '--no-install'], workDir, buildId, { HOME: sandboxHome });
     emitLog(buildId, '✓ Prebuild complete');
+
+    // Detect actual bundle ID from the prebuilt project
+    let detectedBundleId = build.bundle_id || 'com.buildcheap.app';
+    try {
+        const iosDirCheck = path.join(workDir, 'ios');
+        const xcodeproj = fs.readdirSync(iosDirCheck).find(f => f.endsWith('.xcodeproj'));
+        if (xcodeproj) {
+            const pbxPath = path.join(iosDirCheck, xcodeproj, 'project.pbxproj');
+            const pbxText = fs.readFileSync(pbxPath, 'utf8');
+            const match = pbxText.match(/PRODUCT_BUNDLE_IDENTIFIER = "?([^;"]+)"?;/);
+            if (match) {
+                detectedBundleId = match[1];
+                emitLog(buildId, `[BuildCheap] Detected bundle ID: ${detectedBundleId}`);
+            }
+        }
+    } catch (_) { }
+
+    if (detectedBundleId.startsWith('com.anonymous.')) {
+        throw new Error(`Invalid Bundle Identifier: "${detectedBundleId}". Apple strictly rejects placeholder IDs. You must either explicitly declare a "bundleIdentifier" in your local app.json, OR completely bypass it by typing your Apple ID into the "Bundle ID Override" box inside your BuildCheap Project's "Edit Metadata" web dashboard.`);
+    }
 
     // Step 3b: Install CocoaPods
     emitLog(buildId, '[BuildCheap] Installing CocoaPods...');
@@ -364,25 +450,48 @@ async function buildIOS(build, workDir) {
     // Step 3d: Check for Apple credentials (code signing)
     let signingAssets = null;
     try {
-        signingAssets = await provisionSigningAssets(build.user_id, build.bundle_id || 'com.buildcheap.app', workDir);
+        signingAssets = await provisionSigningAssets(build.user_id, detectedBundleId, workDir);
     } catch (err) {
         emitLog(buildId, `⚠ No Apple credentials found — building unsigned: ${err.message}`);
     }
 
     let signingFlags;
+    let provResult = null;
     if (signingAssets && signingAssets.token) {
         // Generate CSR and provision signing assets
         emitLog(buildId, '[BuildCheap] Provisioning code signing...');
-        const csrArgs = [
-            'openssl', 'req', '-new', '-newkey', 'rsa:2048', '-nodes',
-            '-keyout', signingAssets.keyPath,
-            '-out', signingAssets.csrPath,
-            '-subj', '/CN=BuildCheap Distribution/O=BuildCheap/C=US',
-        ];
+        const persistentKeyDir = path.join(os.homedir(), '.buildcheap_certs');
+        fs.mkdirSync(persistentKeyDir, { recursive: true });
+        const persistentKeyPath = path.join(persistentKeyDir, `apple_key_${signingAssets.userId}.key`);
+
+        let csrArgs;
+        if (fs.existsSync(persistentKeyPath)) {
+            emitLog(buildId, '[BuildCheap] Reusing existing Apple distribution private key...');
+            fs.copyFileSync(persistentKeyPath, signingAssets.keyPath);
+            signingAssets.isNewKey = false;
+            csrArgs = [
+                'openssl', 'req', '-new', '-key', signingAssets.keyPath,
+                '-out', signingAssets.csrPath,
+                '-subj', '/CN=BuildCheap Distribution/O=BuildCheap/C=US',
+            ];
+        } else {
+            emitLog(buildId, '[BuildCheap] Generating new Apple distribution private key...');
+            signingAssets.isNewKey = true;
+            csrArgs = [
+                'openssl', 'req', '-new', '-newkey', 'rsa:2048', '-nodes',
+                '-keyout', signingAssets.keyPath,
+                '-out', signingAssets.csrPath,
+                '-subj', '/CN=BuildCheap Distribution/O=BuildCheap/C=US',
+            ];
+        }
         await runCommand(csrArgs[0], csrArgs.slice(1), workDir, buildId);
 
+        if (signingAssets.isNewKey) {
+            fs.copyFileSync(signingAssets.keyPath, persistentKeyPath);
+        }
+
         const csrContent = fs.readFileSync(signingAssets.csrPath, 'utf8');
-        const provResult = await completeProvisioning(
+        provResult = await completeProvisioning(
             signingAssets.token, csrContent,
             signingAssets.bundleId, signingAssets
         );
@@ -392,24 +501,44 @@ async function buildIOS(build, workDir) {
         await runCommand('openssl', [
             'x509', '-inform', 'DER', '-in', signingAssets.certPath,
             '-out', path.join(signingAssets.signingDir, 'dist.pem'),
-        ], workDir, buildId);
+        ], workDir, buildId, { HOME: sandboxHome });
+
+        // Auto-extract Team ID from the certificate if it wasn't provided in the DB
+        let realTeamId = provResult.teamId;
+        if (!realTeamId) {
+            try {
+                const subject = execSync('/usr/bin/openssl x509 -noout -subject -in ' + path.join(signingAssets.signingDir, 'dist.pem'), { encoding: 'utf8', stdio: 'pipe' });
+                const match = subject.match(/OU\s*=\s*([A-Z0-9]{10})/);
+                if (match) {
+                    realTeamId = match[1];
+                    emitLog(buildId, `[BuildCheap] Auto-detected Team ID: ${realTeamId}`);
+                    provResult.teamId = realTeamId;
+                    signingAssets.teamId = realTeamId;
+                } else {
+                    emitLog(buildId, `⚠ Auto-detect Team ID failed. Subject output was: ${subject.trim()}`);
+                }
+            } catch (e) {
+                emitLog(buildId, `⚠ Failed to extract Team ID from certificate. Err: ${e.message} Stderr: ${e.stderr ? e.stderr.toString() : ''}`);
+            }
+        }
 
         // Create p12 from cert + key
         await runCommand('openssl', [
             'pkcs12', '-export',
+            '-legacy',
             '-inkey', signingAssets.keyPath,
             '-in', path.join(signingAssets.signingDir, 'dist.pem'),
             '-out', signingAssets.p12Path,
             '-passout', 'pass:buildcheap',
-        ], workDir, buildId);
+        ], workDir, buildId, { HOME: sandboxHome });
 
-        // Import into temporary keychain
+        // Import into temporary keychain (use real HOME so xcodebuild can find it)
         const keychainPath = path.join(signingAssets.signingDir, 'build.keychain-db');
         await runCommand('security', ['create-keychain', '-p', 'buildcheap', keychainPath], workDir, buildId);
         await runCommand('security', ['set-keychain-settings', '-t', '3600', keychainPath], workDir, buildId);
         await runCommand('security', ['unlock-keychain', '-p', 'buildcheap', keychainPath], workDir, buildId);
         await runCommand('security', ['import', signingAssets.p12Path, '-k', keychainPath, '-P', 'buildcheap', '-T', '/usr/bin/codesign'], workDir, buildId);
-        await runCommand('security', ['list-keychains', '-d', 'user', '-s', keychainPath, 'login.keychain-db'], workDir, buildId);
+        await runCommand('security', ['list-keychains', '-d', 'user', '-s', keychainPath, path.join(process.env.HOME || '/Users/administrator', 'Library/Keychains/login.keychain-db')], workDir, buildId);
         await runCommand('security', ['set-key-partition-list', '-S', 'apple-tool:,apple:,codesign:', '-s', '-k', 'buildcheap', keychainPath], workDir, buildId);
 
         // Copy provisioning profile
@@ -423,13 +552,32 @@ async function buildIOS(build, workDir) {
             `DEVELOPMENT_TEAM=${signingAssets.teamId}`,
             `CODE_SIGN_IDENTITY=iPhone Distribution`,
             `PROVISIONING_PROFILE_SPECIFIER=${provResult.profileName}`,
+            `CODE_SIGN_STYLE=Manual`,
         ];
     } else {
         emitLog(buildId, '[BuildCheap] Building unsigned (no Apple credentials)...');
         signingFlags = ['CODE_SIGNING_ALLOWED=NO'];
     }
 
-    // Step 3e: Archive with xcodebuild
+    // Step 3e: Disable automatic code signing if using manual signing
+    if (signingAssets && signingAssets.token) {
+        emitLog(buildId, '[BuildCheap] Switching Xcode project to manual signing...');
+        // Find the .pbxproj file and flip CODE_SIGN_STYLE from Automatic to Manual
+        const pbxprojPath = fs.readdirSync(iosDir)
+            .find(f => f.endsWith('.xcodeproj'));
+        if (pbxprojPath) {
+            const projFilePath = path.join(iosDir, pbxprojPath, 'project.pbxproj');
+            if (fs.existsSync(projFilePath)) {
+                let pbxContent = fs.readFileSync(projFilePath, 'utf8');
+                pbxContent = pbxContent.replace(/CODE_SIGN_STYLE = Automatic;/g, 'CODE_SIGN_STYLE = Manual;');
+                pbxContent = pbxContent.replace(/ProvisioningStyle = Automatic;/g, 'ProvisioningStyle = Manual;');
+                fs.writeFileSync(projFilePath, pbxContent);
+                emitLog(buildId, '✓ Switched to manual signing');
+            }
+        }
+    }
+
+    // Step 3f: Archive with xcodebuild
     emitLog(buildId, `[BuildCheap] Compiling with xcodebuild (scheme: ${scheme})...`);
     await runCommand('xcodebuild', [
         '-workspace', workspace,
@@ -438,6 +586,7 @@ async function buildIOS(build, workDir) {
         '-sdk', 'iphoneos',
         '-destination', 'generic/platform=iOS',
         '-archivePath', archivePath,
+        `CURRENT_PROJECT_VERSION=${build.build_number || 1}`,
         'archive',
         ...signingFlags,
     ], iosDir, buildId);
@@ -453,7 +602,8 @@ async function buildIOS(build, workDir) {
         const plistContent = generateExportPlist(
             signingAssets.teamId,
             signingAssets.bundleId,
-            'app-store'
+            'app-store-connect',
+            provResult.profileName
         );
         fs.writeFileSync(plistPath, plistContent);
 
@@ -464,11 +614,44 @@ async function buildIOS(build, workDir) {
             '-exportOptionsPlist', plistPath,
         ], iosDir, buildId);
         emitLog(buildId, '✓ .ipa exported!');
+
+        // Auto-Submit to App Store Connect
+        if (signingAssets.credentials && signingAssets.credentials.keyId) {
+            emitLog(buildId, '[BuildCheap] Uploading to App Store Connect...');
+
+            try {
+                // Place the .p8 key in workDir/private_keys — the first path altool searches
+                const ascKeysDir = path.join(workDir, 'private_keys');
+                fs.mkdirSync(ascKeysDir, { recursive: true });
+
+                // Write the securely decrypted .p8 file
+                const p8Path = path.join(ascKeysDir, `AuthKey_${signingAssets.credentials.keyId}.p8`);
+                fs.writeFileSync(p8Path, signingAssets.credentials.privateKey);
+
+                // Find the exported .ipa
+                const ipaFile = fs.readdirSync(exportPath).find(f => f.endsWith('.ipa'));
+                if (ipaFile) {
+                    const fullIpaPath = path.join(exportPath, ipaFile);
+                    await runCommand('xcrun', [
+                        'altool', '--upload-app',
+                        '-f', fullIpaPath,
+                        '-t', 'ios',
+                        '--apiKey', signingAssets.credentials.keyId,
+                        '--apiIssuer', signingAssets.credentials.issuerId
+                    ], workDir, buildId);
+                    emitLog(buildId, '✓ Uploaded to App Store Connect successfully!');
+                } else {
+                    emitLog(buildId, '⚠ Failed to find .ipa for upload.');
+                }
+            } catch (uploadObjError) {
+                emitLog(buildId, `⚠ App Store Connect upload failed: ${uploadObjError.message}`);
+            }
+        }
     }
 }
 
 // Generate ExportOptions.plist for xcodebuild -exportArchive
-function generateExportPlist(teamId, bundleId, method) {
+function generateExportPlist(teamId, bundleId, method, profileName) {
     return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -483,10 +666,12 @@ function generateExportPlist(teamId, bundleId, method) {
     <true/>
     <key>signingStyle</key>
     <string>manual</string>
+    <key>signingCertificate</key>
+    <string>iPhone Distribution</string>
     <key>provisioningProfiles</key>
     <dict>
         <key>${bundleId}</key>
-        <string>BuildCheap_${bundleId.replace(/\./g, '_')}</string>
+        <string>${profileName}</string>
     </dict>
 </dict>
 </plist>`;
@@ -518,6 +703,38 @@ function sendStatus() {
     const queuedCount = db.prepare("SELECT COUNT(*) as count FROM builds WHERE status = 'queued'").get().count;
     const activeCount = db.prepare("SELECT COUNT(*) as count FROM builds WHERE status = 'building'").get().count;
     sendToParent('status', { queued: queuedCount, active: activeCount, processing: isProcessing });
+}
+
+async function dispatchWebhooks(buildId, status, duration) {
+    const build = queries.getBuildById.get(buildId);
+    if (!build) return;
+
+    const webhooks = queries.getWebhooksByProjectOwner.all(build.project_id);
+    if (!webhooks || webhooks.length === 0) return;
+
+    const payload = {
+        event: status === 'success' ? 'build.success' : 'build.failure',
+        data: {
+            build_id: build.id,
+            project_id: build.project_id,
+            platform: build.platform,
+            status: status,
+            duration_seconds: duration
+        }
+    };
+
+    for (const hook of webhooks) {
+        try {
+            await fetch(hook.url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                signal: AbortSignal.timeout(5000)
+            });
+        } catch (err) {
+            console.error(`[Worker] Failed to dispatch webhook to ${hook.url}:`, err.message);
+        }
+    }
 }
 
 // ----- Startup -----
