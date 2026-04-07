@@ -7,6 +7,7 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
 
 // Import database directly — each process gets its own connection
 import db, { queries, deductCreditAndCreateBuild, refundBuildCredit } from './db.js';
@@ -657,6 +658,14 @@ async function buildIOS(build, workDir) {
                         '--apiIssuer', signingAssets.credentials.issuerId
                     ], workDir, buildId);
                     emitLog(buildId, '✓ Uploaded to App Store Connect successfully!');
+
+                    await pollAppStoreConnectProcessing(
+                        signingAssets.credentials.issuerId,
+                        signingAssets.credentials.keyId,
+                        signingAssets.credentials.privateKey,
+                        build.build_number.toString(),
+                        buildId
+                    );
                 } else {
                     emitLog(buildId, '⚠ Failed to find .ipa for upload.');
                 }
@@ -752,6 +761,42 @@ async function dispatchWebhooks(buildId, status, duration) {
             console.error(`[Worker] Failed to dispatch webhook to ${hook.url}:`, err.message);
         }
     }
+}
+
+async function pollAppStoreConnectProcessing(issuerId, keyId, privateKey, version, buildId) {
+    emitLog(buildId, `[BuildCheap ASC] Apple confirmed binary receipt. Handshaking API to poll background processing status for up to 15 minutes...`);
+    const token = jwt.sign({}, privateKey, {
+        algorithm: 'ES256',
+        expiresIn: '20m',
+        issuer: issuerId,
+        header: { alg: 'ES256', kid: keyId, typ: 'JWT' }
+    });
+
+    for (let i = 0; i < 20; i++) {
+        await new Promise(r => setTimeout(r, 45000));
+        try {
+            const res = await fetch(`https://api.appstoreconnect.apple.com/v1/builds?filter[version]=${version}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await res.json();
+
+            if (data.data && data.data.length > 0) {
+                const state = data.data[0].attributes.processingState;
+                if (state === 'VALID') {
+                    emitLog(buildId, `✓ App Store Connect Processing verified! Build is fully integrated into TestFlight.`);
+                    return;
+                } else if (state === 'FAILED' || state === 'INVALID') {
+                    throw new Error(`Apple Info.plist Rejection: Your binary dynamically failed ASC native processing (Check your Apple Developer registration inbox for the explicit hardware privacy strings required).`);
+                }
+                emitLog(buildId, `[BuildCheap ASC] Status payload: ${state}...`);
+            } else {
+                emitLog(buildId, `[BuildCheap ASC] Status payload: Apple is actively clustering indexing matrices before evaluation...`);
+            }
+        } catch (e) {
+            if (e.message.includes('Apple Info.plist Rejection')) throw e;
+        }
+    }
+    emitLog(buildId, `⚠ App Store Connect API timed out polling after 15 minutes. Check the processing state dynamically from your Apple portal.`);
 }
 
 // ----- Startup -----
