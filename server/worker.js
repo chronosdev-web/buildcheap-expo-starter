@@ -240,7 +240,7 @@ async function executeBuild(build) {
             const destPath = path.join(destDir, path.basename(artifactPath));
             fs.copyFileSync(artifactPath, destPath);
             artifactSize = fs.statSync(destPath).size;
-            artifactUrl = `/artifacts/builds/${build.id}/${path.basename(artifactPath)}`;
+            artifactUrl = `/api/artifacts/${build.id}/${path.basename(artifactPath)}`;
             emitLog(build.id, `✓ Artifact: ${path.basename(artifactPath)} (${(artifactSize / 1024 / 1024).toFixed(1)} MB)`);
         }
 
