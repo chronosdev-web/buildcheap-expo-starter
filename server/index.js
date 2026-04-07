@@ -182,8 +182,16 @@ app.get('/cli/buildcheap.js', (req, res) => {
     res.download(join(__dirname, '..', 'cli', 'buildcheap.js'), 'buildcheap.js');
 });
 
-// Serve build artifacts
-app.use('/artifacts', express.static(join(__dirname, '..', 'artifacts', 'builds')));
+// Serve build artifacts securely as forced downloads
+app.use('/artifacts', express.static(join(__dirname, '..', 'artifacts', 'builds'), {
+    setHeaders: (res, filepath) => {
+        if (filepath.endsWith('.ipa') || filepath.endsWith('.apk') || filepath.endsWith('.aab')) {
+            const filename = filepath.split('/').pop() || filepath.split('\\').pop();
+            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+            res.setHeader('Content-Type', 'application/octet-stream');
+        }
+    }
+}));
 
 // In production, serve the built frontend
 app.use(express.static(join(__dirname, '..', 'dist')));
