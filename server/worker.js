@@ -187,7 +187,7 @@ async function executeBuild(build) {
 
             try {
                 const repoTemp = 'source_repo';
-                await runCommand('git', ['clone', '--depth', '1', cloneUrl, repoTemp], workDir, build.id);
+                await runCommand('git', ['-c', 'credential.helper=', 'clone', '--depth', '1', cloneUrl, repoTemp], workDir, build.id);
                 const repoPath = path.join(workDir, repoTemp);
                 for (const file of fs.readdirSync(repoPath)) {
                     fs.renameSync(path.join(repoPath, file), path.join(workDir, file));
