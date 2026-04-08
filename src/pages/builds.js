@@ -151,7 +151,6 @@ export function renderBuilds(container) {
       // Update header download link dynamically
       const header = document.getElementById('buildLogHeader');
       if (header && selectedBuildId) {
-        const build = data.builds.find(b => b.id === selectedBuildId);
         header.innerHTML = `
           <div style="display:flex; justify-content:space-between; align-items:center; width: 100%;">
             <h3>Build Log</h3>
