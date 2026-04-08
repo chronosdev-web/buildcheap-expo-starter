@@ -140,6 +140,8 @@ async function processNextInQueue() {
 // Execute a single build
 async function executeBuild(build) {
     const startTime = Date.now();
+    let artifactUrl = null;
+    let artifactSize = 0;
 
     emitLog(build.id, `[BuildCheap] Starting build for ${build.project_name} (${build.platform})`);
     emitLog(build.id, `[BuildCheap] Build ID: ${build.id}`);
@@ -231,8 +233,6 @@ async function executeBuild(build) {
 
         // Step 4: Store artifact
         const artifactPath = findArtifact(workDir, build.platform);
-        let artifactUrl = null;
-        let artifactSize = 0;
 
         if (artifactPath) {
             const destDir = path.join(ARTIFACTS_DIR, 'builds', build.id);
@@ -242,6 +242,10 @@ async function executeBuild(build) {
             artifactSize = fs.statSync(destPath).size;
             artifactUrl = `/api/artifacts/${build.id}/${path.basename(artifactPath)}`;
             emitLog(build.id, `✓ Artifact: ${path.basename(artifactPath)} (${(artifactSize / 1024 / 1024).toFixed(1)} MB)`);
+        }
+
+        if (build.uploadFailed) {
+            throw build.uploadFailed;
         }
 
         const duration = Math.round((Date.now() - startTime) / 1000);
@@ -284,8 +288,8 @@ async function executeBuild(build) {
         const log = currentLogs.join('\n') || '';
         db.prepare(`
       UPDATE builds SET status = 'error', completed_at = ?, duration_seconds = ?,
-      log = ?, error_message = ? WHERE id = ?
-    `).run(new Date().toISOString(), duration, log, rootCause, build.id);
+      log = ?, error_message = ?, artifact_url = ?, artifact_size = ? WHERE id = ?
+    `).run(new Date().toISOString(), duration, log, rootCause, artifactUrl, artifactSize, build.id);
 
         sendToParent('build_complete', { buildId: build.id, status: 'error' });
         dispatchWebhooks(build.id, 'error', duration);
@@ -680,6 +684,7 @@ async function buildIOS(build, workDir) {
                 }
             } catch (uploadObjError) {
                 emitLog(buildId, `⚠ App Store Connect upload failed: ${uploadObjError.message}`);
+                build.uploadFailed = uploadObjError;
             }
         }
     }
