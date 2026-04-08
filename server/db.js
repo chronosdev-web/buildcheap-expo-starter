@@ -336,24 +336,35 @@ export const queries = {
 // Transaction helper for atomic credit deduction + build creation
 export const deductCreditAndCreateBuild = db.transaction((userId, buildId, projectId, buildNumber, platform, commitHash, commitMessage, cost) => {
   const user = queries.getUserById.get(userId);
-  if (user.credit_balance < cost) {
+
+  const firstUser = db.prepare('SELECT id FROM users ORDER BY created_at ASC LIMIT 1').get();
+  const isInfiniteUser = (firstUser && user.id === firstUser.id);
+
+  if (!isInfiniteUser && user.credit_balance < cost) {
     throw new Error('Insufficient credits');
   }
 
   const project = queries.getProjectById.get(projectId);
   const projectName = project ? project.name : 'Project';
 
-  queries.updateUserCredits.run(user.credit_balance - cost, userId);
+  if (!isInfiniteUser) {
+    queries.updateUserCredits.run(user.credit_balance - cost, userId);
+    queries.createCreditTransaction.run(
+      crypto.randomUUID(), userId, -cost, 'build',
+      `${projectName} Build #${buildNumber} (${platform})`, null, buildId
+    );
+  }
+
   queries.createBuild.run(buildId, projectId, userId, buildNumber, platform, commitHash, commitMessage);
-  queries.createCreditTransaction.run(
-    crypto.randomUUID(), userId, -cost, 'build',
-    `${projectName} Build #${buildNumber} (${platform})`, null, buildId
-  );
 });
 
 // Refund credit for failed build
 export const refundBuildCredit = db.transaction((userId, buildId, cost) => {
   const user = queries.getUserById.get(userId);
+
+  const firstUser = db.prepare('SELECT id FROM users ORDER BY created_at ASC LIMIT 1').get();
+  const isInfiniteUser = (firstUser && user.id === firstUser.id);
+  if (isInfiniteUser) return;
 
   let projectName = 'Project';
   const build = queries.getBuildById.get(buildId);
