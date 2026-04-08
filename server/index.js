@@ -200,6 +200,17 @@ app.get('/{*splat}', (req, res, next) => {
     res.sendFile(join(__dirname, '..', 'dist', 'index.html'));
 });
 
+// JSON 404 Handler for API routes
+app.use('/api', (req, res) => {
+    res.status(404).json({ error: `Not found: ${req.method} ${req.originalUrl}` });
+});
+
+// Global JSON Error Handler
+app.use((err, req, res, next) => {
+    console.error('[Express Error]', err);
+    res.status(500).json({ error: err.message || 'Internal Server Error' });
+});
+
 // ----- WebSocket for Build Logs -----
 const wss = new WebSocketServer({ server, path: '/ws' });
 

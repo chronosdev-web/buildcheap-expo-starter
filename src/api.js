@@ -33,7 +33,16 @@ async function apiFetch(path, options = {}) {
         credentials: 'include', // Sends HttpOnly cookie automatically
     });
 
-    const data = await res.json();
+    const text = await res.text();
+    let data;
+    try {
+        data = JSON.parse(text);
+    } catch (e) {
+        console.error(`[apiFetch ERROR] URL: ${API_BASE}${path}`);
+        console.error(`[apiFetch ERROR] Status: ${res.status}`);
+        console.error(`[apiFetch ERROR] Response text:`, text.substring(0, 200));
+        throw new Error(`Failed parsing JSON for ${path}. Server returned HTML. Check dev tools console.`);
+    }
 
     if (!res.ok) {
         if (res.status === 401) {

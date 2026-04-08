@@ -410,21 +410,30 @@ async function buildIOS(build, workDir) {
     const sandboxHome = path.join(workDir, '.sandbox_home');
 
     // Step 3a: Prebuild native iOS project
-    if (build.bundle_id) {
-        emitLog(buildId, `[BuildCheap] Injecting dashboard Bundle ID (${build.bundle_id}) into Expo manifest...`);
-        const appJsonPath = path.join(workDir, 'app.json');
-        if (fs.existsSync(appJsonPath)) {
-            try {
-                let appJson = JSON.parse(fs.readFileSync(appJsonPath, 'utf8'));
-                appJson.expo = appJson.expo || {};
-                appJson.expo.ios = appJson.expo.ios || {};
+    emitLog(buildId, `[BuildCheap] Injecting Build Number (${build.build_number}) into Expo manifest...`);
+    const appJsonPath = path.join(workDir, 'app.json');
+    if (fs.existsSync(appJsonPath)) {
+        try {
+            let appJson = JSON.parse(fs.readFileSync(appJsonPath, 'utf8'));
+            appJson.expo = appJson.expo || {};
+
+            // Inject Build Number (Guaranteed for App Store Connect)
+            appJson.expo.ios = appJson.expo.ios || {};
+            appJson.expo.ios.buildNumber = build.build_number.toString();
+
+            appJson.expo.android = appJson.expo.android || {};
+            appJson.expo.android.versionCode = build.build_number;
+
+            // Inject Bundle ID if provided
+            if (build.bundle_id) {
+                emitLog(buildId, `[BuildCheap] Injecting dashboard Bundle ID (${build.bundle_id}) into Expo manifest...`);
                 appJson.expo.ios.bundleIdentifier = build.bundle_id;
-                appJson.expo.android = appJson.expo.android || {};
                 appJson.expo.android.package = build.bundle_id;
-                fs.writeFileSync(appJsonPath, JSON.stringify(appJson, null, 2));
-            } catch (e) {
-                emitLog(buildId, `⚠ Failed to inject Bundle ID into app.json: ${e.message}`);
             }
+
+            fs.writeFileSync(appJsonPath, JSON.stringify(appJson, null, 2));
+        } catch (e) {
+            emitLog(buildId, `⚠ Failed to inject configuration into app.json: ${e.message}`);
         }
     }
 

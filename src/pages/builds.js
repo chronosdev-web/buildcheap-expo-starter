@@ -157,7 +157,6 @@ export function renderBuilds(container) {
             <h3>Build Log</h3>
             <div style="display:flex; gap: 8px;">
               <button class="btn btn-ghost btn-sm" onclick="window.copyBuildLog()">Copy All 📋</button>
-              ${build && build.status === 'success' ? `<a href="${build.artifact_url || '#'}" target="_blank" class="btn btn-ghost btn-sm" download>Download Artifact ↗</a>` : ''}
             </div>
           </div>
         `;

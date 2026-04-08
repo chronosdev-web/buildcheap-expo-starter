@@ -160,7 +160,16 @@ const migrations = [
   "ALTER TABLE projects ADD COLUMN description TEXT",
   "ALTER TABLE users ADD COLUMN github_token TEXT",
   "ALTER TABLE users ADD COLUMN avatar_url TEXT",
-  "ALTER TABLE projects ADD COLUMN org_id TEXT"
+  "ALTER TABLE projects ADD COLUMN org_id TEXT",
+  "ALTER TABLE builds ADD COLUMN duration_seconds INTEGER",
+  "ALTER TABLE builds ADD COLUMN artifact_url TEXT",
+  "ALTER TABLE builds ADD COLUMN artifact_size INTEGER",
+  "ALTER TABLE builds ADD COLUMN cost REAL DEFAULT 0.50",
+  "ALTER TABLE builds ADD COLUMN log TEXT",
+  "ALTER TABLE builds ADD COLUMN error_message TEXT",
+  "ALTER TABLE users ADD COLUMN stripe_customer_id TEXT",
+  "ALTER TABLE users ADD COLUMN api_key TEXT",
+  "ALTER TABLE users ADD COLUMN credit_balance REAL DEFAULT 0"
 ];
 
 for (const query of migrations) {
