@@ -246,12 +246,13 @@ export const queries = {
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `),
   getBuildsByUser: db.prepare(`
-    SELECT b.*, p.name as project_name, p.slug as project_slug
+    SELECT b.id, b.project_id, b.user_id, b.build_number, b.platform, b.status, b.commit_hash, b.commit_message, b.duration_seconds, b.artifact_url, b.artifact_size, b.cost, b.error_message, b.started_at, b.completed_at, b.created_at, p.name as project_name, p.slug as project_slug
     FROM builds b JOIN projects p ON b.project_id = p.id
     WHERE b.user_id = ? ORDER BY b.created_at DESC LIMIT ? OFFSET ?
   `),
   getBuildsByProject: db.prepare(`
-    SELECT * FROM builds WHERE project_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?
+    SELECT id, project_id, user_id, build_number, platform, status, commit_hash, commit_message, duration_seconds, artifact_url, artifact_size, cost, error_message, started_at, completed_at, created_at
+    FROM builds WHERE project_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?
   `),
   getBuildById: db.prepare('SELECT * FROM builds WHERE id = ?'),
   getNextBuildNumber: db.prepare('SELECT COALESCE(MAX(build_number), 0) + 1 as next FROM builds WHERE project_id = ?'),
