@@ -133,7 +133,7 @@ export const builds = {
     trigger: (project_id, platform, commit_hash, commit_message) =>
         apiFetch('/builds', { method: 'POST', body: JSON.stringify({ project_id, platform, commit_hash, commit_message }) }),
     list: async (limit = 20, offset = 0) => {
-        const data = await apiFetch(`/builds?limit=${limit}&offset=${offset}`);
+        const data = await apiFetch(`/builds?limit=${limit}&offset=${offset}&t=${Date.now()}`);
         store.set('builds', data.builds);
         return data;
     },
@@ -168,7 +168,7 @@ export const credits = {
 // Dashboard
 export const dashboard = {
     get: async () => {
-        const data = await apiFetch('/dashboard');
+        const data = await apiFetch(`/dashboard?t=${Date.now()}`);
         store.update({
             dashboardStats: data.stats,
             projects: data.projects,
