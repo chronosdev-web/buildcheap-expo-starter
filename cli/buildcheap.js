@@ -24,7 +24,7 @@ import { Readable } from 'stream';
 
 // ── Config ──────────────────────────────────────
 const CONFIG_FILE = path.join(process.env.HOME || process.env.USERPROFILE || '.', '.buildcheap.json');
-const DEFAULT_SERVER = 'http://207.254.22.67:3000';
+const DEFAULT_SERVER = 'https://buildcheap.dev';
 const VERSION = '1.0.0';
 
 // Default ignore patterns (like .easignore / .gitignore)
