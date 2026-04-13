@@ -109,8 +109,11 @@ export const auth = {
         return data;
     },
 
-    rotateKey: async () => {
-        const data = await apiFetch('/auth/rotate-key', { method: 'POST' });
+    rotateKey: async (expiration_days) => {
+        const data = await apiFetch('/auth/rotate-key', {
+            method: 'POST',
+            body: JSON.stringify({ expiration_days }),
+        });
         return data;
     },
 };

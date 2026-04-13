@@ -68,35 +68,40 @@ export function renderSettings(container) {
         <div class="settings-row-info">
           <div class="settings-row-label" style="font-size:1.1rem;margin-bottom:8px;">Personal Access Token</div>
           <div class="settings-row-desc" style="max-width:550px; line-height:1.6; color:var(--text-secondary);">
-            This API key allows you to <strong>automate your builds</strong> without manually clicking buttons on this dashboard.<br><br>
-            
-            <strong style="color:var(--text-primary);">Use Cases:</strong><br><br>
-            
-            <strong style="color:var(--text-primary);">1. Automated "Push-to-Deploy" Pipelines (CI/CD)</strong><br>
-            This is the holy grail. Developers can add a simple curl script to their GitHub Actions, GitLab CI, or Bitbucket Pipelines. Whenever a developer writes code and pushes it to their main branch, GitHub will automatically ping the BuildCheap API (<code>POST /api/builds</code>). BuildCheap will instantly wake up, pull their new code, compile the .ipa, and ship it directly to TestFlight or the App Store without a single human click.<br><br>
-
-            <strong style="color:var(--text-primary);">2. Custom Internal Dashboards</strong><br>
-            If an agency or software development company uses BuildCheap, they might not want their own junior developers logging into your dashboard. By using your API, they can build their own custom "Build App" button into their company's internal Slack bots, Notion pages, or proprietary web apps.<br><br>
-
-            <strong style="color:var(--text-primary);">3. Desktop Command Line Interfaces (CLIs)</strong><br>
-            Just like how Expo has <code>eas build --platform ios</code>, your users can write a simple terminal script on their computers. They can just type <code>buildcheap push</code> in their terminal, and it will automatically hit your API, queue a cloud build on your Mac Mini, and return the streaming logs right back to their terminal window!<br><br>
-
-            <strong style="color:var(--text-primary);">4. Dynamic API Key Rotation & Webhooks</strong><br>
-            The API allows users to programmatically manage their security. They can use the API to automatically rotate their <code>bc_live_</code> keys every 30 days for compliance reasons, or dynamically register/delete HTTP Webhooks so their servers get automatically notified the exact second a build succeeds or fails.<br><br>
-
-            <i style="color:var(--text-tertiary);">In short, the Dashboard is for human clicking. The API is for machine automation. It allows your platform to become an invisible, scalable engine that powers other companies' software ecosystems!</i>
+            This API key allows you to <strong>automate your builds</strong> via CLI, CI/CD pipelines, or direct API integrations.<br><br>
+            <i style="color:var(--text-tertiary);">The Dashboard is for human clicking. The API is for machine automation.</i>
           </div>
         </div>
-        <div class="flex-col-sm" style="margin-top:4px;">
+        <div class="flex-col-sm" style="margin-top:4px;min-width:340px;">
           <div class="api-key-display">
             <span class="key-mask" id="apiKeyMask">bc_live_••••••••••••••••••••••••</span>
             <button class="btn btn-ghost btn-sm" id="revealKeyBtn">👁️ Show</button>
+          </div>
+          ${user.api_key_expires_at
+      ? `<div style="font-size:0.75rem;margin-top:4px;color:${new Date(user.api_key_expires_at) < new Date() ? 'var(--error)' : 'var(--text-tertiary)'};">
+                ${new Date(user.api_key_expires_at) < new Date() ? '⚠️ Expired' : '⏳ Expires'}: ${new Date(user.api_key_expires_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+              </div>`
+      : `<div style="font-size:0.75rem;margin-top:4px;color:var(--text-tertiary);">No expiration set</div>`
+    }
+          <div style="margin-top:var(--space-sm);display:flex;gap:var(--space-xs);align-items:center;flex-wrap:wrap;">
+            <select id="expirationSelect" class="input" style="width:auto;padding:4px 8px;font-size:0.8rem;">
+              <option value="0">No expiration</option>
+              <option value="1">1 day</option>
+              <option value="7">7 days</option>
+              <option value="14">14 days</option>
+              <option value="30" selected>30 days</option>
+              <option value="180">6 months</option>
+              <option value="365">1 year</option>
+              <option value="custom">Custom...</option>
+            </select>
+            <input type="number" id="customExpirationInput" class="input" placeholder="Days" min="1" max="3650" style="width:80px;padding:4px 8px;font-size:0.8rem;display:none;" />
             <button class="btn btn-ghost btn-sm" id="rotateKeyBtn" style="color:var(--error);">🔄 Rotate</button>
           </div>
           <div id="rotateKeyMsg" style="font-size:0.75rem;margin-top:4px;display:none;"></div>
         </div>
       </div>
     </div>
+
     
     <!-- Team / Organizations -->
     <div class="settings-section" id="teamSection" style="display:none;">
@@ -213,17 +218,37 @@ export function renderSettings(container) {
 
   const rotateBtn = layout.querySelector('#rotateKeyBtn');
   const rotateMsg = layout.querySelector('#rotateKeyMsg');
+  const expSelect = layout.querySelector('#expirationSelect');
+  const customExp = layout.querySelector('#customExpirationInput');
+
+  if (expSelect && customExp) {
+    expSelect.addEventListener('change', () => {
+      customExp.style.display = expSelect.value === 'custom' ? 'block' : 'none';
+      if (expSelect.value === 'custom') customExp.focus();
+    });
+  }
+
   if (rotateBtn && mask) {
     rotateBtn.addEventListener('click', async () => {
       if (!confirm('Are you sure you want to rotate your API key? This will instantly invalidate your previous key and break any active CLI/CI configurations using it.')) return;
+
+      let expDays = expSelect ? expSelect.value : 30;
+      if (expDays === 'custom') {
+        expDays = parseInt(customExp.value);
+        if (isNaN(expDays) || expDays < 1) {
+          alert('Please enter a valid number of days for custom expiration');
+          return;
+        }
+      }
 
       rotateBtn.disabled = true;
       rotateBtn.innerText = 'Rotating...';
       rotateMsg.style.display = 'none';
 
       try {
-        const { api_key } = await auth.rotateKey();
-        user.api_key = api_key; // Update local user state payload reference
+        const result = await auth.rotateKey(expDays);
+        user.api_key = result.api_key;
+        user.api_key_expires_at = result.expires_at;
         store.set('user', user);
 
         mask.textContent = api_key;

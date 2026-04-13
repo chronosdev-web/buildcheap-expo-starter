@@ -169,7 +169,8 @@ const migrations = [
   "ALTER TABLE builds ADD COLUMN error_message TEXT",
   "ALTER TABLE users ADD COLUMN stripe_customer_id TEXT",
   "ALTER TABLE users ADD COLUMN api_key TEXT",
-  "ALTER TABLE users ADD COLUMN credit_balance REAL DEFAULT 0"
+  "ALTER TABLE users ADD COLUMN credit_balance REAL DEFAULT 0",
+  "ALTER TABLE users ADD COLUMN api_key_expires_at TEXT"
 ];
 
 for (const query of migrations) {
@@ -220,6 +221,7 @@ export const queries = {
   updateUserGithubToken: db.prepare('UPDATE users SET github_token = ? WHERE id = ?'),
   updateUser: db.prepare('UPDATE users SET display_name = ?, updated_at = datetime(\'now\') WHERE id = ?'),
   updateUserAvatar: db.prepare('UPDATE users SET avatar_url = ?, updated_at = datetime(\'now\') WHERE id = ?'),
+  updateUserApiKey: db.prepare('UPDATE users SET api_key = ?, api_key_expires_at = ?, updated_at = datetime(\'now\') WHERE id = ?'),
 
   // Projects
   createProject: db.prepare(`

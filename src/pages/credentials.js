@@ -110,9 +110,23 @@ function renderCredentialsList(data) {
           </div>
         </div>
 
-        <div class="card" style="padding:var(--space-xl);text-align:center;">
-          <div style="font-weight:600;color:var(--text-primary);margin-bottom:4px;">Active CLI Session</div>
-          <div style="font-size:0.875rem;color:var(--text-tertiary);">You have an active Personal Access Token securely bound to this account. Generating a new token will effortlessly revoke the existing one.</div>
+        <div class="card" style="padding:var(--space-xl);display:flex;flex-direction:column;align-items:center;">
+          <div style="font-weight:600;color:var(--text-primary);margin-bottom:4px;">Token Expiration</div>
+          <div style="font-size:0.875rem;color:var(--text-tertiary);margin-bottom:var(--space-md);text-align:center;">Choose how long your new token will be valid before it automatically expires. Generating a new token will revoke your existing CLI token.</div>
+          
+          <div style="display:flex;gap:var(--space-xs);align-items:center;flex-wrap:wrap;justify-content:center;">
+            <select id="credExpirationSelect" class="input" style="width:auto;padding:6px 12px;">
+              <option value="0">No expiration</option>
+              <option value="1">1 day</option>
+              <option value="7">7 days</option>
+              <option value="14">14 days</option>
+              <option value="30" selected>30 days</option>
+              <option value="180">6 months</option>
+              <option value="365">1 year</option>
+              <option value="custom">Custom...</option>
+            </select>
+            <input type="number" id="credCustomExpInput" class="input" placeholder="Days" min="1" max="3650" style="width:80px;padding:6px 12px;display:none;" />
+          </div>
         </div>
       </div>
     `;
@@ -318,13 +332,33 @@ export function renderCredentials(container) {
     const copyTokenBtn = pageContent.querySelector('#copyTokenBtn');
     const hideTokenBtn = pageContent.querySelector('#hideTokenBtn');
 
+    const expSelect = pageContent.querySelector('#credExpirationSelect');
+    const customExp = pageContent.querySelector('#credCustomExpInput');
+
+    if (expSelect && customExp) {
+      expSelect.addEventListener('change', () => {
+        customExp.style.display = expSelect.value === 'custom' ? 'block' : 'none';
+        if (expSelect.value === 'custom') customExp.focus();
+      });
+    }
+
     if (createTokenBtn) {
       createTokenBtn.addEventListener('click', async () => {
         if (!confirm('Are you sure? Creating a new token will automatically revoke your current CLI token.')) return;
+
+        let expDays = expSelect ? expSelect.value : 30;
+        if (expDays === 'custom') {
+          expDays = parseInt(customExp.value);
+          if (isNaN(expDays) || expDays < 1) {
+            alert('Please enter a valid number of days for custom expiration');
+            return;
+          }
+        }
+
         createTokenBtn.disabled = true;
         createTokenBtn.innerText = 'Generating...';
         try {
-          const res = await auth.rotateKey();
+          const res = await auth.rotateKey(expDays);
           newTokenInput.value = res.api_key;
           tokenDisplayCard.style.display = 'block';
         } catch (err) {

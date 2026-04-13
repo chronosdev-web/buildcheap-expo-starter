@@ -56,6 +56,13 @@ export function authMiddleware(req, res, next) {
             if (!user) {
                 return res.status(401).json({ error: 'Invalid API key' });
             }
+            // Check API key expiration
+            if (user.api_key_expires_at) {
+                const expiresAt = new Date(user.api_key_expires_at);
+                if (expiresAt < new Date()) {
+                    return res.status(401).json({ error: 'API key has expired. Please rotate your key.' });
+                }
+            }
             req.user = user;
             return next();
         }

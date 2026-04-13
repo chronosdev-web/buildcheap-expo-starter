@@ -115,9 +115,18 @@ router.post('/avatar', authMiddleware, (req, res) => {
 // POST /api/auth/rotate-key - rotate API key
 router.post('/rotate-key', authMiddleware, (req, res) => {
     try {
+        const { expiration_days } = req.body || {};
         const newKey = `bc_live_${crypto.randomBytes(24).toString('hex')}`;
-        db.prepare('UPDATE users SET api_key = ? WHERE id = ?').run(newKey, req.user.id);
-        res.json({ api_key: newKey });
+
+        let expiresAt = null;
+        if (expiration_days && expiration_days > 0) {
+            const d = new Date();
+            d.setDate(d.getDate() + Number(expiration_days));
+            expiresAt = d.toISOString();
+        }
+
+        db.prepare('UPDATE users SET api_key = ?, api_key_expires_at = ? WHERE id = ?').run(newKey, expiresAt, req.user.id);
+        res.json({ api_key: newKey, expires_at: expiresAt });
     } catch (err) {
         res.status(500).json({ error: 'Failed to rotate API key' });
     }
