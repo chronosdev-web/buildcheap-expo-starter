@@ -98,8 +98,32 @@ app.set('sendToWorker', sendToWorker);
 initStripe();
 
 // ----- Middleware -----
+
+// Security headers (prevents clickjacking, MIME sniffing, and enforces HTTPS)
+app.use((req, res, next) => {
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    if (IS_PROD) {
+        res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
+    next();
+});
+
+// Block access to sensitive file extensions (prevents Google dorking for .env, .db, .sql, .log files)
+app.use((req, res, next) => {
+    const blocked = /\.(env|db|db-wal|db-shm|sqlite|sql|log|git|gitignore)$/i;
+    if (blocked.test(req.path)) {
+        return res.status(404).json({ error: 'Not found' });
+    }
+    next();
+});
+
 app.use(cors({
-    origin: ['http://localhost:5173', 'http://localhost:3000'],
+    origin: IS_PROD
+        ? ['https://buildcheap.dev', 'https://www.buildcheap.dev']
+        : ['http://localhost:5173', 'http://localhost:3000'],
     credentials: true,
 }));
 
@@ -130,8 +154,6 @@ app.get('/api/health', (req, res) => {
     res.json({
         status: 'ok',
         service: 'BuildCheap',
-        version: '1.0.0',
-        cost_per_build: '$0.50',
         worker_connected: worker && worker.connected,
     });
 });

@@ -1,0 +1,9 @@
+User-agent: *
+Disallow: /api/
+Disallow: /ws
+Disallow: /cli/
+Disallow: /admin
+Disallow: /*.db
+Disallow: /*.sqlite
+Disallow: /*.env
+Disallow: /*.log
