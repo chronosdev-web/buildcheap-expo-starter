@@ -360,14 +360,15 @@ export const deductCreditAndCreateBuild = db.transaction((userId, buildId, proje
   const projectName = project ? project.name : 'Project';
 
   if (!isInfiniteUser) {
-    queries.updateUserCredits.run(user.credit_balance - cost, userId);
-    queries.createCreditTransaction.run(
-      crypto.randomUUID(), userId, -cost, 'build',
-      `${projectName} Build #${buildNumber} (${platform})`, null, buildId
-    );
+    db.prepare('UPDATE users SET credit_balance = credit_balance - ? WHERE id = ?').run(cost, userId);
   }
-
   queries.createBuild.run(buildId, projectId, userId, buildNumber, platform, commitHash, commitMessage);
+  if (!isInfiniteUser) {
+    db.prepare(`
+      INSERT INTO credit_history (id, user_id, amount, description, type, build_id)
+      VALUES (?, ?, ?, ?, 'deduction', ?)
+    `).run(crypto.randomUUID(), userId, -cost, `Build ${buildNumber} (${platform})`, buildId);
+  }
 });
 
 // Refund credit for failed build
