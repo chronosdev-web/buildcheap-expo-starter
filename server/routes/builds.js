@@ -46,17 +46,10 @@ router.post('/', (req, res) => {
         const buildNumber = queries.getNextBuildNumber.get(project_id).next;
         const buildId = crypto.randomUUID();
 
-        if (isAdmin) {
-            queries.createBuild.run(
-                buildId, project_id, req.user.id, buildNumber,
-                platform, commit_hash || 'HEAD', commit_message || 'Manual build'
-            );
-        } else {
-            deductCreditAndCreateBuild(
-                req.user.id, buildId, project_id, buildNumber,
-                platform, commit_hash || 'HEAD', commit_message || 'Manual build', COST
-            );
-        }
+        queries.createBuild.run(
+            buildId, project_id, req.user.id, buildNumber,
+            platform, commit_hash || 'HEAD', commit_message || 'Manual build'
+        );
 
         // Return immediately — build is queued
         res.status(202).json({
