@@ -108,6 +108,11 @@ export const auth = {
         store.update({ user: data.user });
         return data;
     },
+
+    rotateKey: async () => {
+        const data = await apiFetch('/auth/rotate-key', { method: 'POST' });
+        return data;
+    },
 };
 
 // Projects
