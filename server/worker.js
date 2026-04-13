@@ -209,7 +209,7 @@ async function executeBuild(build) {
 
         // Step 2: Install dependencies
         emitLog(build.id, '[BuildCheap] Installing dependencies...');
-        await runCommand('yarn', ['install', '--ignore-scripts'], workDir, build.id);
+        await runCommand('npm', ['install', '--ignore-scripts'], workDir, build.id);
 
         const stripePatchPath = path.join(workDir, 'node_modules/@stripe/stripe-react-native/ios/StripeSwiftInterop.h');
         if (fs.existsSync(stripePatchPath)) {
