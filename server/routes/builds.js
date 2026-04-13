@@ -1,6 +1,7 @@
 // BuildCheap — Build Routes (using worker IPC)
 import { Router } from 'express';
-import { queries } from '../db.js';
+import { queries, deductCreditAndCreateBuild } from '../db.js';
+import crypto from 'crypto';
 
 const router = Router();
 
@@ -42,15 +43,20 @@ router.post('/', (req, res) => {
             });
         }
 
-        // Send to worker process via IPC
-        const sendToWorker = req.app.get('sendToWorker');
-        sendToWorker('queue_build', {
-            userId: req.user.id,
-            projectId: project_id,
-            platform,
-            commitHash: commit_hash,
-            commitMessage: commit_message,
-        });
+        const buildNumber = queries.getNextBuildNumber.get(project_id).next;
+        const buildId = crypto.randomUUID();
+
+        if (isAdmin) {
+            queries.createBuild.run(
+                buildId, project_id, req.user.id, buildNumber,
+                platform, commit_hash || 'HEAD', commit_message || 'Manual build'
+            );
+        } else {
+            deductCreditAndCreateBuild(
+                req.user.id, buildId, project_id, buildNumber,
+                platform, commit_hash || 'HEAD', commit_message || 'Manual build', COST
+            );
+        }
 
         // Return immediately — build is queued
         res.status(202).json({

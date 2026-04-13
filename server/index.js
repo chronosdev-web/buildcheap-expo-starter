@@ -26,6 +26,7 @@ import webhookRoutes from './routes/webhooks.js';
 import secretRoutes from './routes/secrets.js';
 import orgRoutes from './routes/orgs.js';
 import supportRoutes from './routes/support.js';
+import workerRoutes from './routes/worker.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -35,64 +36,27 @@ const server = createServer(app);
 const PORT = process.env.PORT || 3000;
 const IS_PROD = process.env.NODE_ENV === 'production';
 
-// ----- Worker Process (Fix #3: Isolated) -----
-let worker = null;
-const buildLogListeners = new Map(); // buildId -> Set<WebSocket>
-
-function startWorker() {
-    worker = fork(join(__dirname, 'worker.js'), [], {
-        stdio: ['pipe', 'inherit', 'inherit', 'ipc'],
-    });
-
-    worker.on('message', (msg) => {
-        // Broadcast build logs to WebSocket clients
-        if (msg.type === 'build_log') {
-            const listeners = buildLogListeners.get(msg.data.buildId);
-            if (listeners) {
-                const payload = JSON.stringify({ type: 'log', buildId: msg.data.buildId, line: msg.data.line });
-                listeners.forEach(ws => {
-                    if (ws.readyState === 1) ws.send(payload);
-                });
-            }
+// Create global WebSocket broadcaster for worker routes
+function broadcast(event) {
+    if (event.type === 'build_log') {
+        const listeners = buildLogListeners.get(event.data.buildId);
+        if (listeners) {
+            const payload = JSON.stringify({ type: 'log', buildId: event.data.buildId, line: event.data.line });
+            listeners.forEach(ws => {
+                if (ws.readyState === 1) ws.send(payload);
+            });
         }
-
-        // Notify on build state changes
-        if (msg.type === 'build_complete' || msg.type === 'build_started') {
-            const listeners = buildLogListeners.get(msg.data.buildId);
-            if (listeners) {
-                const payload = JSON.stringify({ type: msg.type, ...msg.data });
-                listeners.forEach(ws => {
-                    if (ws.readyState === 1) ws.send(payload);
-                });
-            }
+    } else if (event.type === 'build_complete' || event.type === 'build_started') {
+        const listeners = buildLogListeners.get(event.data.buildId);
+        if (listeners) {
+            const payload = JSON.stringify(event);
+            listeners.forEach(ws => {
+                if (ws.readyState === 1) ws.send(payload);
+            });
         }
-
-        if (msg.type === 'ready') {
-            console.log('[Server] Worker process ready');
-        }
-
-        if (msg.type === 'build_error') {
-            console.error('[Server] IPC Worker Error:', msg.data.error || msg.data);
-        }
-    });
-
-    worker.on('exit', (code) => {
-        console.error(`[Server] Worker crashed with code ${code}, restarting in 2s...`);
-        setTimeout(startWorker, 2000);
-    });
-}
-
-startWorker();
-
-// Helper to send message to worker
-function sendToWorker(type, data) {
-    if (worker && worker.connected) {
-        worker.send({ type, data });
     }
 }
-
-// Make worker accessible to routes
-app.set('sendToWorker', sendToWorker);
+app.set('wsBroadcast', broadcast);
 
 // Initialize Stripe
 initStripe();
@@ -154,7 +118,7 @@ app.get('/api/health', (req, res) => {
     res.json({
         status: 'ok',
         service: 'BuildCheap',
-        worker_connected: worker && worker.connected,
+        worker_connected: true, // Now handled remotely, so always true for API checks
     });
 });
 
@@ -169,6 +133,9 @@ app.use('/api/webhooks', authMiddleware, webhookRoutes);
 app.use('/api/projects/:id/secrets', authMiddleware, secretRoutes);
 app.use('/api/orgs', authMiddleware, orgRoutes);
 app.use('/api/support', authMiddleware, supportRoutes);
+
+// Remote API Worker
+app.use('/api/worker', workerRoutes);
 
 // Dashboard endpoint
 app.get('/api/dashboard', authMiddleware, (req, res) => {
