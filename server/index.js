@@ -36,6 +36,8 @@ const server = createServer(app);
 const PORT = process.env.PORT || 3000;
 const IS_PROD = process.env.NODE_ENV === 'production';
 
+const buildLogListeners = new Map(); // buildId -> Set<WebSocket>
+
 // Create global WebSocket broadcaster for worker routes
 function broadcast(event) {
     if (event.type === 'build_log') {

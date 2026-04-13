@@ -182,7 +182,6 @@ async function processJob(job) {
     const workDir = path.join(ARTIFACTS_DIR, job.id);
     const sandboxHome = path.join(workDir, '.home');
     fs.mkdirSync(workDir, { recursive: true });
-    fs.mkdirSync(sandboxHome, { recursive: true });
 
     try {
         // Step 1: Clone
@@ -192,6 +191,9 @@ async function processJob(job) {
 
         await runCommand('git', ['clone', '--depth', '1', cloneUrl, '.'], workDir, job.id);
         streamLog(job.id, '✓ Code pulled');
+
+        // Setup sandbox home
+        fs.mkdirSync(sandboxHome, { recursive: true });
 
         // Step 2: Install
         streamLog(job.id, '[Remote Agent] Installing dependencies...');
@@ -298,22 +300,22 @@ async function processJob(job) {
                 if (match) keys.teamId = match[1];
             }
 
-            const plistContent = \`<?xml version="1.0" encoding="UTF-8"?>
+            const plistContent = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<dict><key>method</key><string>app-store-connect</string><key>teamID</key><string>\${keys.teamId}</string><key>uploadBitcode</key><false/><key>uploadSymbols</key><true/><key>signingStyle</key><string>manual</string><key>signingCertificate</key><string>iPhone Distribution</string></dict>
-</plist>\`;
+<dict><key>method</key><string>app-store-connect</string><key>teamID</key><string>${keys.teamId}</string><key>uploadBitcode</key><false/><key>uploadSymbols</key><true/><key>signingStyle</key><string>manual</string><key>signingCertificate</key><string>iPhone Distribution</string></dict>
+</plist>`;
             fs.writeFileSync(path.join(workDir, 'build', 'ExportOptions.plist'), plistContent);
-            
+
             await runCommand('xcodebuild', ['-exportArchive', '-archivePath', archivePath, '-exportPath', exportPath, '-exportOptionsPlist', path.join(workDir, 'build', 'ExportOptions.plist')], iosDir, job.id);
-            
+
             const ipaPath = path.join(exportPath, fs.readdirSync(exportPath).find(f => f.endsWith('.ipa')));
-            
+
             // Upload to BuildCheap
             streamLog(job.id, '[Remote Agent] Uploading .ipa back to dashboard...');
             const formData = new FormData();
             formData.append('artifact', fs.createReadStream(ipaPath));
-            await apiFetch(`/ api / worker / jobs / ${ job.id }/artifact`, 'POST', formData, true);
+            await apiFetch(`/ api / worker / jobs / ${job.id}/artifact`, 'POST', formData, true);
 
             // Submit to Apple
             await uploadIpaToAsc(ipaPath, workDir, job.id, keys);
