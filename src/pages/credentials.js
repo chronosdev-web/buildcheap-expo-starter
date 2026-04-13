@@ -10,7 +10,7 @@ function renderLoading() {
     </div>`;
 }
 
-function renderCredentialsList(data) {
+function renderCredentialsList(data, user) {
   if (!data.connected) {
     return `
         <div class="page-title-bar">
@@ -100,6 +100,22 @@ function renderCredentialsList(data) {
           </button>
         </div>
 
+        <div class="card" style="padding:var(--space-lg);margin-bottom:var(--space-md);display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <div style="font-weight:600;color:var(--text-primary);margin-bottom:4px;">Active CLI Session</div>
+            <div class="api-key-display" style="display:inline-flex;align-items:center;background:var(--bg-secondary);padding:var(--space-xs) var(--space-sm);border-radius:4px;border:1px solid var(--border-medium);gap:var(--space-sm);">
+              <span class="key-mask" id="apiKeyMask" style="font-family:monospace;letter-spacing:1px;">bc_live_••••••••••••••••••••••••</span>
+              <button class="btn btn-ghost btn-sm" id="revealKeyBtn" style="padding:4px 8px;">👁️ Show</button>
+            </div>
+            ${user.api_key_expires_at
+      ? `<div style="font-size:0.75rem;margin-top:8px;color:${new Date(user.api_key_expires_at) < new Date() ? 'var(--error)' : 'var(--text-tertiary)'};">
+                  ${new Date(user.api_key_expires_at) < new Date() ? '⚠️ Expired' : '⏳ Expires'}: ${new Date(user.api_key_expires_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                </div>`
+      : `<div style="font-size:0.75rem;margin-top:8px;color:var(--text-tertiary);">No expiration set</div>`
+    }
+          </div>
+        </div>
+
         <div class="card" id="tokenDisplayCard" style="display:none;padding:var(--space-xl);border-color:var(--primary);background:rgba(99,102,241,0.05);margin-bottom:var(--space-md);">
           <h4 style="margin-bottom:var(--space-sm);color:var(--text-primary);">New Personal Access Token</h4>
           <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:var(--space-lg);">Copy this token now. For your security, you will safely not be able to see it again after closing this panel.</p>
@@ -141,7 +157,8 @@ export function renderCredentials(container) {
 
   function loadCredentials() {
     credentials.apple.get().then(data => {
-      pageContent.innerHTML = renderCredentialsList(data) + renderGithubSection();
+      const user = store.get('user');
+      pageContent.innerHTML = renderCredentialsList(data, user) + renderGithubSection();
       attachListeners(data.connected);
       attachGithubListeners();
     }).catch(err => {
@@ -332,6 +349,30 @@ export function renderCredentials(container) {
     const copyTokenBtn = pageContent.querySelector('#copyTokenBtn');
     const hideTokenBtn = pageContent.querySelector('#hideTokenBtn');
 
+    const apiKeyMask = pageContent.querySelector('#apiKeyMask');
+    const revealKeyBtn = pageContent.querySelector('#revealKeyBtn');
+
+    if (revealKeyBtn && apiKeyMask) {
+      let revealed = false;
+      revealKeyBtn.addEventListener('click', () => {
+        const currentUser = store.get('user');
+        if (!revealed) {
+          apiKeyMask.textContent = currentUser.api_key;
+          revealKeyBtn.textContent = 'Hide';
+          revealed = true;
+          setTimeout(() => {
+            apiKeyMask.textContent = 'bc_live_••••••••••••••••••••••••';
+            revealKeyBtn.textContent = '👁️ Show';
+            revealed = false;
+          }, 5000);
+        } else {
+          apiKeyMask.textContent = 'bc_live_••••••••••••••••••••••••';
+          revealKeyBtn.textContent = '👁️ Show';
+          revealed = false;
+        }
+      });
+    }
+
     const expSelect = pageContent.querySelector('#credExpirationSelect');
     const customExp = pageContent.querySelector('#credCustomExpInput');
 
@@ -359,6 +400,14 @@ export function renderCredentials(container) {
         createTokenBtn.innerText = 'Generating...';
         try {
           const res = await auth.rotateKey(expDays);
+
+          const currentUser = store.get('user');
+          currentUser.api_key = res.api_key;
+          currentUser.api_key_expires_at = res.expires_at;
+          store.set('user', currentUser);
+
+          if (apiKeyMask) apiKeyMask.textContent = res.api_key;
+
           newTokenInput.value = res.api_key;
           tokenDisplayCard.style.display = 'block';
         } catch (err) {
