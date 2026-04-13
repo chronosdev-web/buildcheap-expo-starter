@@ -1,6 +1,6 @@
 // Credentials page — dynamic
 import { createDashboardLayout } from '../components/layout.js';
-import { credentials } from '../api.js';
+import { credentials, auth } from '../api.js';
 import { store } from '../store.js';
 
 function renderLoading() {
@@ -324,7 +324,7 @@ export function renderCredentials(container) {
         createTokenBtn.disabled = true;
         createTokenBtn.innerText = 'Generating...';
         try {
-          const res = await apiFetch('/auth/rotate-key', { method: 'POST' });
+          const res = await auth.rotateKey();
           newTokenInput.value = res.api_key;
           tokenDisplayCard.style.display = 'block';
         } catch (err) {
