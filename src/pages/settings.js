@@ -63,42 +63,34 @@ export function renderSettings(container) {
     
     <!-- API Keys -->
     <div class="settings-section" id="apiKeysSection">
-      <h3>API Keys</h3>
-      <div class="settings-row" style="align-items:flex-start;">
-        <div class="settings-row-info">
-          <div class="settings-row-label" style="font-size:1.1rem;margin-bottom:8px;">Personal Access Token</div>
-          <div class="settings-row-desc" style="max-width:550px; line-height:1.6; color:var(--text-secondary);">
-            This API key allows you to <strong>automate your builds</strong> via CLI, CI/CD pipelines, or direct API integrations.<br><br>
-            <i style="color:var(--text-tertiary);">The Dashboard is for human clicking. The API is for machine automation.</i>
-          </div>
-        </div>
-        <div class="flex-col-sm" style="margin-top:4px;min-width:340px;">
-          <div class="api-key-display">
-            <span class="key-mask" id="apiKeyMask">bc_live_••••••••••••••••••••••••</span>
-            <button class="btn btn-ghost btn-sm" id="revealKeyBtn">👁️ Show</button>
-          </div>
-          ${user.api_key_expires_at
-      ? `<div style="font-size:0.75rem;margin-top:4px;color:${new Date(user.api_key_expires_at) < new Date() ? 'var(--error)' : 'var(--text-tertiary)'};">
-                ${new Date(user.api_key_expires_at) < new Date() ? '⚠️ Expired' : '⏳ Expires'}: ${new Date(user.api_key_expires_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
-              </div>`
-      : `<div style="font-size:0.75rem;margin-top:4px;color:var(--text-tertiary);">No expiration set</div>`
-    }
-          <div style="margin-top:var(--space-sm);display:flex;gap:var(--space-xs);align-items:center;flex-wrap:wrap;">
-            <select id="expirationSelect" class="input" style="width:auto;padding:4px 8px;font-size:0.8rem;">
-              <option value="0">No expiration</option>
-              <option value="1">1 day</option>
-              <option value="7">7 days</option>
-              <option value="14">14 days</option>
-              <option value="30" selected>30 days</option>
-              <option value="180">6 months</option>
-              <option value="365">1 year</option>
-              <option value="custom">Custom...</option>
-            </select>
-            <input type="number" id="customExpirationInput" class="input" placeholder="Days" min="1" max="3650" style="width:80px;padding:4px 8px;font-size:0.8rem;display:none;" />
-            <button class="btn btn-ghost btn-sm" id="rotateKeyBtn" style="color:var(--error);">🔄 Rotate</button>
-          </div>
-          <div id="rotateKeyMsg" style="font-size:0.75rem;margin-top:4px;display:none;"></div>
-        </div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+        <h3>API Keys</h3>
+      </div>
+      <p style="color:var(--text-tertiary);font-size:0.875rem;margin-bottom:var(--space-md);">
+        These tokens allow you to automate your builds via CLI or CI/CD pipelines.
+      </p>
+
+      <div class="card" style="padding:var(--space-md);margin-bottom:var(--space-xl);">
+        <form id="createKeyForm" style="display:flex;gap:var(--space-sm);flex-wrap:wrap;align-items:center;">
+          <input type="text" id="newKeyName" class="input flex-auto" placeholder="E.g., GitHub Actions Token" required minlength="2" />
+          <select id="keyExpirationSelect" class="input" style="width:auto;">
+            <option value="0">No expiration</option>
+            <option value="1">1 day</option>
+            <option value="7">7 days</option>
+            <option value="14">14 days</option>
+            <option value="30" selected>30 days</option>
+            <option value="180">6 months</option>
+            <option value="365">1 year</option>
+            <option value="custom">Custom...</option>
+          </select>
+          <input type="number" id="keyCustomExpirationInput" class="input" placeholder="Days" min="1" max="3650" style="width:80px;display:none;" />
+          <button type="submit" class="btn btn-primary" id="createKeyBtn">Generate Key</button>
+        </form>
+        <div id="createKeyMsg" style="font-size:0.875rem;display:none;margin-top:var(--space-xs);"></div>
+      </div>
+
+      <div id="apiKeysListContainer">
+        <div style="text-align:center;padding:var(--space-xl);color:var(--text-tertiary);">Loading keys...</div>
       </div>
     </div>
 
@@ -193,81 +185,138 @@ export function renderSettings(container) {
   const layout = createDashboardLayout('settings', content);
   container.appendChild(layout);
 
-  // Make API key interactive
-  const mask = layout.querySelector('#apiKeyMask');
-  const btn = layout.querySelector('#revealKeyBtn');
-  if (btn && mask) {
-    let revealed = false;
-    btn.addEventListener('click', () => {
-      if (!revealed) {
-        mask.textContent = user.api_key;
-        btn.textContent = 'Hide';
-        revealed = true;
-        setTimeout(() => {
-          mask.textContent = 'bc_live_••••••••••••••••••••••••';
-          btn.textContent = '👁️ Show';
-          revealed = false;
-        }, 5000);
-      } else {
-        mask.textContent = 'bc_live_••••••••••••••••••••••••';
-        btn.textContent = '👁️ Show';
-        revealed = false;
+  // API Keys Logic
+  const apiKeysListContainer = layout.querySelector('#apiKeysListContainer');
+  const createKeyForm = layout.querySelector('#createKeyForm');
+  const createKeyMsg = layout.querySelector('#createKeyMsg');
+  const keyExpSelect = layout.querySelector('#keyExpirationSelect');
+  const keyCustomExp = layout.querySelector('#keyCustomExpirationInput');
+
+  if (keyExpSelect && keyCustomExp) {
+    keyExpSelect.addEventListener('change', () => {
+      keyCustomExp.style.display = keyExpSelect.value === 'custom' ? 'block' : 'none';
+      if (keyExpSelect.value === 'custom') keyCustomExp.focus();
+    });
+  }
+
+  let userApiKeys = [];
+
+  async function loadApiKeys() {
+    if (!apiKeysListContainer) return;
+    try {
+      const data = await auth.keys.list();
+      userApiKeys = data.keys || [];
+      if (userApiKeys.length === 0) {
+        apiKeysListContainer.innerHTML = '<div style="text-align:center;padding:var(--space-xl);color:var(--text-tertiary);">No API keys are currently active.</div>';
+        return;
       }
-    });
+
+      apiKeysListContainer.innerHTML = userApiKeys.map(k => {
+        let expText = 'No expiration';
+        let isExpired = false;
+        if (k.expires_at) {
+          const exp = new Date(k.expires_at);
+          isExpired = exp < new Date();
+          expText = isExpired ? 'Expired' : 'Expires ' + exp.toLocaleDateString();
+        }
+        const stateColor = isExpired ? 'var(--error)' : (!k.is_active ? 'var(--text-tertiary)' : 'var(--success)');
+        const stateLabel = isExpired ? 'Expired' : (!k.is_active ? 'Disabled' : 'Active');
+
+        return `
+        <div class="card" style="padding:var(--space-md);margin-bottom:var(--space-sm);display:flex;justify-content:space-between;align-items:center;">
+          <div style="flex:1;">
+            <div style="font-weight:600;font-size:1.05rem;display:flex;align-items:center;gap:8px;">
+              ${k.name}
+              <span class="badge" style="background:transparent;border:1px solid ${stateColor};color:${stateColor};">${stateLabel}</span>
+            </div>
+            <div style="font-family:monospace;font-size:0.9rem;background:var(--bg-secondary);padding:4px 8px;border-radius:4px;margin-top:8px;display:inline-block;color:var(--text-secondary);">
+              <span id="mask-${k.id}">bc_live_••••••••••••••••••••••••</span>
+              <button class="btn btn-ghost btn-sm btn-copy-key" data-value="${k.key_value}" data-id="${k.id}" style="margin-left:8px;padding:2px 8px;min-height:auto;">Copy</button>
+            </div>
+            <div style="font-size:0.75rem;color:var(--text-tertiary);margin-top:8px;display:flex;gap:12px;">
+              <span>Created ${new Date(k.created_at).toLocaleDateString()}</span>
+              <span>${expText}</span>
+              ${k.last_used_at ? '<span>Last used ' + new Date(k.last_used_at).toLocaleDateString() + '</span>' : '<span>Never used</span>'}
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:var(--space-xs);align-items:flex-end;">
+            ${!isExpired ? '<button class="btn btn-secondary btn-sm toggle-key-btn" data-id="' + k.id + '" data-active="' + k.is_active + '">' + (k.is_active ? 'Disable' : 'Enable') + '</button>' : ''}
+            <button class="btn btn-ghost btn-sm delete-key-btn" data-id="${k.id}" style="color:var(--error);">Delete</button>
+          </div>
+        </div>
+        `;
+      }).join('');
+
+      layout.querySelectorAll('.btn-copy-key').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          const val = e.target.getAttribute('data-value');
+          await navigator.clipboard.writeText(val);
+          e.target.textContent = 'Copied!';
+          setTimeout(() => { e.target.textContent = 'Copy'; }, 2000);
+        });
+      });
+
+      layout.querySelectorAll('.toggle-key-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          const id = e.target.getAttribute('data-id');
+          const currentState = parseInt(e.target.getAttribute('data-active'), 10);
+          try {
+            await auth.keys.toggle(id, !currentState);
+            loadApiKeys();
+          } catch (err) { alert(err.message); }
+        });
+      });
+
+      layout.querySelectorAll('.delete-key-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          if (!confirm('Permanently delete this key? This action cannot be undone.')) return;
+          const id = e.target.getAttribute('data-id');
+          try {
+            await auth.keys.delete(id);
+            loadApiKeys();
+          } catch (err) { alert(err.message); }
+        });
+      });
+
+    } catch (err) {
+      apiKeysListContainer.innerHTML = `<div style="color:var(--error);padding:var(--space-md);">${err.message}</div>`;
+    }
   }
 
-  const rotateBtn = layout.querySelector('#rotateKeyBtn');
-  const rotateMsg = layout.querySelector('#rotateKeyMsg');
-  const expSelect = layout.querySelector('#expirationSelect');
-  const customExp = layout.querySelector('#customExpirationInput');
+  if (createKeyForm) {
+    createKeyForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const createBtn = createKeyForm.querySelector('#createKeyBtn');
+      const nameInput = createKeyForm.querySelector('#newKeyName');
+      createKeyMsg.style.display = 'none';
+      createBtn.disabled = true;
 
-  if (expSelect && customExp) {
-    expSelect.addEventListener('change', () => {
-      customExp.style.display = expSelect.value === 'custom' ? 'block' : 'none';
-      if (expSelect.value === 'custom') customExp.focus();
-    });
-  }
-
-  if (rotateBtn && mask) {
-    rotateBtn.addEventListener('click', async () => {
-      if (!confirm('Are you sure you want to rotate your API key? This will instantly invalidate your previous key and break any active CLI/CI configurations using it.')) return;
-
-      let expDays = expSelect ? expSelect.value : 30;
+      let expDays = keyExpSelect ? keyExpSelect.value : 30;
       if (expDays === 'custom') {
-        expDays = parseInt(customExp.value);
+        expDays = parseInt(keyCustomExp.value);
         if (isNaN(expDays) || expDays < 1) {
           alert('Please enter a valid number of days for custom expiration');
+          createBtn.disabled = false;
           return;
         }
       }
 
-      rotateBtn.disabled = true;
-      rotateBtn.innerText = 'Rotating...';
-      rotateMsg.style.display = 'none';
-
       try {
-        const result = await auth.rotateKey(expDays);
-        user.api_key = result.api_key;
-        user.api_key_expires_at = result.expires_at;
-        store.set('user', user);
-
-        mask.textContent = result.api_key;
-        if (btn) btn.textContent = 'Hide';
-
-        rotateMsg.innerText = 'Key revoked and newly rotated. Please update your environment variables.';
-        rotateMsg.style.color = 'var(--success)';
-        rotateMsg.style.display = 'block';
-
+        const res = await auth.keys.create(nameInput.value.trim(), expDays);
+        nameInput.value = '';
+        createKeyMsg.innerHTML = '<span style="color:var(--success);">Key successfully generated! <strong>' + res.key.key_value + '</strong> Make sure to copy it now.</span>';
+        createKeyMsg.style.display = 'block';
+        loadApiKeys();
       } catch (err) {
-        rotateMsg.innerText = err.message || 'Failed to rotate API Key.';
-        rotateMsg.style.color = 'var(--error)';
-        rotateMsg.style.display = 'block';
+        createKeyMsg.innerHTML = '<span style="color:var(--error);">' + err.message + '</span>';
+        createKeyMsg.style.display = 'block';
       } finally {
-        rotateBtn.disabled = false;
-        rotateBtn.innerText = '🔄 Rotate';
+        createBtn.disabled = false;
       }
     });
   }
+
+  loadApiKeys();
 
   // Handle Tabs
   const tabs = layout.querySelectorAll('.tab');
@@ -315,7 +364,7 @@ export function renderSettings(container) {
       }
 
       orgListContainer.innerHTML = data.organizations.map(org => `
-        <div class="card" style="padding:var(--space-lg);margin-bottom:var(--space-md);">
+          < div class="card" style = "padding:var(--space-lg);margin-bottom:var(--space-md);" >
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-md);">
             <div>
               <div style="font-weight:700;font-size:1.1rem;">${org.name}</div>
@@ -327,15 +376,15 @@ export function renderSettings(container) {
             </div>
           </div>
           <div id="members-${org.id}" style="display:none;"></div>
-        </div>
-      `).join('');
+        </div >
+          `).join('');
 
       // View members
       layout.querySelectorAll('.view-members-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
           const orgId = btn.dataset.id;
           const myRole = btn.dataset.role;
-          const container = layout.querySelector(`#members-${orgId}`);
+          const container = layout.querySelector(`#members - ${orgId} `);
           if (container.style.display === 'block') { container.style.display = 'none'; return; }
           container.style.display = 'block';
           container.innerHTML = '<div style="color:var(--text-tertiary);">Loading...</div>';
@@ -358,15 +407,16 @@ export function renderSettings(container) {
                   </form>
                   <div class="invite-error" style="color:var(--error);font-size:0.75rem;display:none;margin-top:4px;"></div>
                 </div>
-              ` : ''}
-              <div class="members-list">
-                ${data.members.map(m => `
+              ` : ''
+              }
+        <div class="members-list">
+          ${data.members.map(m => `
                   <div style="display:flex;align-items:center;justify-content:space-between;padding:var(--space-sm) 0;border-bottom:1px solid var(--border-subtle);">
                     <div style="display:flex;align-items:center;gap:var(--space-sm);">
                       ${m.avatar_url
-                ? `<img src="${m.avatar_url}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;" />`
-                : `<div class="avatar" style="width:28px;height:28px;font-size:12px;">${(m.display_name || m.email || '?')[0].toUpperCase()}</div>`
-              }
+                  ? `<img src="${m.avatar_url}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;" />`
+                  : `<div class="avatar" style="width:28px;height:28px;font-size:12px;">${(m.display_name || m.email || '?')[0].toUpperCase()}</div>`
+                }
                       <div>
                         <div style="font-weight:500;font-size:0.875rem;">${m.display_name || 'Unnamed'}</div>
                         <div style="font-size:0.75rem;color:var(--text-tertiary);">${m.email}</div>
@@ -378,8 +428,8 @@ export function renderSettings(container) {
                     </div>
                   </div>
                 `).join('')}
-              </div>
-            `;
+        </div>
+        `;
 
             // Invite form handler
             const inviteForm = container.querySelector('.invite-form');
@@ -412,7 +462,7 @@ export function renderSettings(container) {
               });
             });
           } catch (err) {
-            container.innerHTML = `<div style="color:var(--error);">${err.message}</div>`;
+            container.innerHTML = `< div style = "color:var(--error);" > ${err.message}</div > `;
           }
         });
       });
@@ -428,7 +478,7 @@ export function renderSettings(container) {
         });
       });
     } catch (err) {
-      orgListContainer.innerHTML = `<div style="color:var(--error);padding:var(--space-md);">${err.message}</div>`;
+      orgListContainer.innerHTML = `< div style = "color:var(--error);padding:var(--space-md);" > ${err.message}</div > `;
     }
   }
 
@@ -464,14 +514,14 @@ export function renderSettings(container) {
       }
 
       webhooksListContainer.innerHTML = data.webhooks.map(wh => `
-        <div class="card" style="padding:var(--space-md);display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-sm);">
+          < div class="card" style = "padding:var(--space-md);display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-sm);" >
           <div>
             <div style="font-weight:500;">${wh.url}</div>
             <div style="font-size:0.75rem;color:var(--text-tertiary);">Added ${new Date(wh.created_at).toLocaleDateString()}</div>
           </div>
           <button class="btn btn-ghost delete-webhook-btn" style="color:var(--error);" data-id="${wh.id}">Remove</button>
-        </div>
-      `).join('');
+        </div >
+          `).join('');
 
       layout.querySelectorAll('.delete-webhook-btn').forEach(btn => {
         btn.addEventListener('click', async (e) => {
@@ -488,7 +538,7 @@ export function renderSettings(container) {
         });
       });
     } catch (err) {
-      webhooksListContainer.innerHTML = `<div style="color:var(--error);padding:var(--space-md);">${err.message}</div>`;
+      webhooksListContainer.innerHTML = `< div style = "color:var(--error);padding:var(--space-md);" > ${err.message}</div > `;
     }
   }
 

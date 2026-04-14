@@ -50,18 +50,27 @@ export function authMiddleware(req, res, next) {
         }
 
         // 3. Check for API key (for CI/CD integrations)
-        const apiKey = req.headers['x-api-key'];
-        if (apiKey) {
-            const user = queries.getUserByApiKey.get(apiKey);
-            if (!user) {
+        const apiKeyHeader = req.headers['x-api-key'];
+        if (apiKeyHeader) {
+            const keyRecord = queries.getApiKeyByValue.get(apiKeyHeader);
+            if (!keyRecord) {
                 return res.status(401).json({ error: 'Invalid API key' });
             }
-            // Check API key expiration
-            if (user.api_key_expires_at) {
-                const expiresAt = new Date(user.api_key_expires_at);
+            if (!keyRecord.is_active) {
+                return res.status(401).json({ error: 'API key is disabled' });
+            }
+            if (keyRecord.expires_at) {
+                const expiresAt = new Date(keyRecord.expires_at);
                 if (expiresAt < new Date()) {
-                    return res.status(401).json({ error: 'API key has expired. Please rotate your key.' });
+                    return res.status(401).json({ error: 'API key has expired.' });
                 }
+            }
+            // Update last used at in background
+            queries.updateApiKeyLastUsed.run(keyRecord.id);
+
+            const user = queries.getUserById.get(keyRecord.user_id);
+            if (!user) {
+                return res.status(401).json({ error: 'User not found' });
             }
             req.user = user;
             return next();
@@ -104,9 +113,12 @@ export async function signup(email, password, displayName) {
 
     const id = crypto.randomUUID();
     const passwordHash = await hashPassword(password);
-    const apiKey = generateApiKey();
 
-    queries.createUser.run(id, email, passwordHash, displayName, apiKey);
+    queries.createUser.run(id, email, passwordHash, displayName, null);
+
+    // Auto-generate the first API key for the new user
+    const apiKey = generateApiKey();
+    queries.createApiKey.run(crypto.randomUUID(), id, 'Default CLI Key', apiKey, null);
 
     const user = queries.getUserById.get(id);
     const token = generateToken(user);

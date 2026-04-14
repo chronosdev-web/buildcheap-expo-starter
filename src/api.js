@@ -109,12 +109,17 @@ export const auth = {
         return data;
     },
 
-    rotateKey: async (expiration_days) => {
-        const data = await apiFetch('/auth/rotate-key', {
+    keys: {
+        list: () => apiFetch('/auth/keys'),
+        create: (name, expiration_days) => apiFetch('/auth/keys', {
             method: 'POST',
-            body: JSON.stringify({ expiration_days }),
-        });
-        return data;
+            body: JSON.stringify({ name, expiration_days }),
+        }),
+        toggle: (id, is_active) => apiFetch(`/auth/keys/${id}/toggle`, {
+            method: 'PUT',
+            body: JSON.stringify({ is_active }),
+        }),
+        delete: (id) => apiFetch(`/auth/keys/${id}`, { method: 'DELETE' }),
     },
 };
 

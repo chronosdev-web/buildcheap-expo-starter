@@ -205,6 +205,38 @@ function backfillOrganizations() {
 }
 backfillOrganizations();
 
+// Backfill: migrate legacy `api_key` from users into the new `api_keys` table
+function backfillApiKeys() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS api_keys (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      key_value TEXT UNIQUE NOT NULL,
+      expires_at TEXT,
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now')),
+      last_used_at TEXT,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
+    CREATE INDEX IF NOT EXISTS idx_api_keys_value ON api_keys(key_value);
+  `);
+
+  const users = db.prepare('SELECT id, api_key, api_key_expires_at FROM users WHERE api_key IS NOT NULL').all();
+  for (const user of users) {
+    const existing = db.prepare('SELECT id FROM api_keys WHERE key_value = ?').get(user.api_key);
+    if (!existing) {
+      try {
+        db.prepare('INSERT INTO api_keys (id, user_id, name, key_value, expires_at) VALUES (?, ?, ?, ?, ?)').run(crypto.randomUUID(), user.id, 'Default CLI Key', user.api_key, user.api_key_expires_at);
+      } catch (e) {
+        // ignore conflicts
+      }
+    }
+  }
+}
+backfillApiKeys();
+
 // Prepared statements for common operations
 export const queries = {
   // Users
@@ -222,6 +254,18 @@ export const queries = {
   updateUser: db.prepare('UPDATE users SET display_name = ?, updated_at = datetime(\'now\') WHERE id = ?'),
   updateUserAvatar: db.prepare('UPDATE users SET avatar_url = ?, updated_at = datetime(\'now\') WHERE id = ?'),
   updateUserApiKey: db.prepare('UPDATE users SET api_key = ?, api_key_expires_at = ?, updated_at = datetime(\'now\') WHERE id = ?'),
+
+  // API Keys
+  createApiKey: db.prepare(`
+    INSERT INTO api_keys (id, user_id, name, key_value, expires_at)
+    VALUES (?, ?, ?, ?, ?)
+  `),
+  getApiKeysByUser: db.prepare('SELECT * FROM api_keys WHERE user_id = ? ORDER BY created_at DESC'),
+  getApiKeyById: db.prepare('SELECT * FROM api_keys WHERE id = ? AND user_id = ?'),
+  getApiKeyByValue: db.prepare('SELECT * FROM api_keys WHERE key_value = ?'),
+  updateApiKeyStatus: db.prepare('UPDATE api_keys SET is_active = ? WHERE id = ? AND user_id = ?'),
+  updateApiKeyLastUsed: db.prepare('UPDATE api_keys SET last_used_at = datetime(\'now\') WHERE id = ?'),
+  deleteApiKey: db.prepare('DELETE FROM api_keys WHERE id = ? AND user_id = ?'),
 
   // Projects
   createProject: db.prepare(`

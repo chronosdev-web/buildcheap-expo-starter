@@ -112,12 +112,25 @@ router.post('/avatar', authMiddleware, (req, res) => {
     }
 });
 
-// POST /api/auth/rotate-key - rotate API key
-router.post('/rotate-key', authMiddleware, (req, res) => {
+// GET /api/auth/keys - list API keys
+router.get('/keys', authMiddleware, (req, res) => {
     try {
-        const { expiration_days } = req.body || {};
-        const newKey = `bc_live_${crypto.randomBytes(24).toString('hex')}`;
+        const keys = queries.getApiKeysByUser.all(req.user.id);
+        res.json({ keys });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch API keys' });
+    }
+});
 
+// POST /api/auth/keys - create API key
+router.post('/keys', authMiddleware, (req, res) => {
+    try {
+        const { name, expiration_days } = req.body;
+        if (!name || typeof name !== 'string') {
+            return res.status(400).json({ error: 'Key name is required' });
+        }
+
+        const newKey = `bc_live_${crypto.randomBytes(24).toString('hex')}`;
         let expiresAt = null;
         if (expiration_days && expiration_days > 0) {
             const d = new Date();
@@ -125,10 +138,35 @@ router.post('/rotate-key', authMiddleware, (req, res) => {
             expiresAt = d.toISOString();
         }
 
-        db.prepare('UPDATE users SET api_key = ?, api_key_expires_at = ? WHERE id = ?').run(newKey, expiresAt, req.user.id);
-        res.json({ api_key: newKey, expires_at: expiresAt });
+        const id = crypto.randomUUID();
+        queries.createApiKey.run(id, req.user.id, name.trim().slice(0, 50), newKey, expiresAt);
+
+        const keyRecord = queries.getApiKeyById.get(id, req.user.id);
+        res.json({ key: keyRecord });
     } catch (err) {
-        res.status(500).json({ error: 'Failed to rotate API key' });
+        res.status(500).json({ error: 'Failed to create API key' });
+    }
+});
+
+// PUT /api/auth/keys/:id/toggle - enable/disable API key
+router.put('/keys/:id/toggle', authMiddleware, (req, res) => {
+    try {
+        const { is_active } = req.body;
+        const keyId = req.params.id;
+        queries.updateApiKeyStatus.run(is_active ? 1 : 0, keyId, req.user.id);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to toggle API key' });
+    }
+});
+
+// DELETE /api/auth/keys/:id - delete API key
+router.delete('/keys/:id', authMiddleware, (req, res) => {
+    try {
+        queries.deleteApiKey.run(req.params.id, req.user.id);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to delete API key' });
     }
 });
 
