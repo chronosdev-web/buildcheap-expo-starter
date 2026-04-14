@@ -251,7 +251,7 @@ export function renderSettings(container) {
         user.api_key_expires_at = result.expires_at;
         store.set('user', user);
 
-        mask.textContent = api_key;
+        mask.textContent = result.api_key;
         if (btn) btn.textContent = 'Hide';
 
         rotateMsg.innerText = 'Key revoked and newly rotated. Please update your environment variables.';
