@@ -66,9 +66,17 @@ router.get('/jobs/next', (req, res) => {
         try {
             const appleCreds = getAppleCredentials(nextJob.user_id);
             if (appleCreds) {
+                // Uppercase for altool upload
                 secrets['APPLE_ISSUER_ID'] = appleCreds.issuerId;
                 secrets['APPLE_KEY_ID'] = appleCreds.keyId;
                 secrets['APPLE_P8'] = appleCreds.privateKey;
+                secrets['APPLE_TEAM_ID'] = appleCreds.teamId;
+
+                // Lowercase for provisioning profile creation
+                secrets['apple_issuer_id'] = appleCreds.issuerId;
+                secrets['apple_key_id'] = appleCreds.keyId;
+                secrets['apple_private_key'] = appleCreds.privateKey;
+                secrets['apple_team_id'] = appleCreds.teamId;
             }
         } catch (err) { /* no apple creds */ }
 
