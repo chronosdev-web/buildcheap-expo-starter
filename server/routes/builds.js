@@ -45,10 +45,11 @@ router.post('/', (req, res) => {
 
         const buildNumber = queries.getNextBuildNumber.get(project_id).next;
         const buildId = crypto.randomUUID();
+        const actualCost = isAdmin ? 0 : COST;
 
-        queries.createBuild.run(
-            buildId, project_id, req.user.id, buildNumber,
-            platform, commit_hash || 'HEAD', commit_message || 'Manual build'
+        deductCreditAndCreateBuild(
+            req.user.id, buildId, project_id, buildNumber,
+            platform, commit_hash || 'HEAD', commit_message || 'Manual build', actualCost
         );
 
         // Return immediately — build is queued

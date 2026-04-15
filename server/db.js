@@ -409,7 +409,7 @@ export const deductCreditAndCreateBuild = db.transaction((userId, buildId, proje
   queries.createBuild.run(buildId, projectId, userId, buildNumber, platform, commitHash, commitMessage);
   if (!isInfiniteUser) {
     db.prepare(`
-      INSERT INTO credit_history (id, user_id, amount, description, type, build_id)
+      INSERT INTO credit_transactions (id, user_id, amount, description, type, build_id)
       VALUES (?, ?, ?, ?, 'deduction', ?)
     `).run(crypto.randomUUID(), userId, -cost, `Build ${buildNumber} (${platform})`, buildId);
   }
