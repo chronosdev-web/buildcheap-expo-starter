@@ -160,8 +160,8 @@ export const builds = {
         return data;
     },
     get: (id) => apiFetch(`/builds/${id}`),
-    getLog: (id) => apiFetch(`/builds/${id}/log`),
-    log: (id) => apiFetch(`/builds/${id}/log`),
+    getLog: (id) => apiFetch(`/builds/${id}/log?t=${Date.now()}`),
+    log: (id) => apiFetch(`/builds/${id}/log?t=${Date.now()}`),
     stats: () => apiFetch('/builds/stats'),
 };
 

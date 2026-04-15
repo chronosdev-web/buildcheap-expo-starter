@@ -181,18 +181,26 @@ export function renderBuilds(container) {
     if (!logOutput) return;
     logOutput.innerHTML = 'Fetching logs...<br/>';
 
+    let wsFired = false;
+
     builds.log(buildId).then(data => {
-      if (data.log) {
-        logOutput.textContent = data.log + '\n';
-      } else {
-        logOutput.textContent = '';
+      if (!wsFired) {
+        if (data.log) {
+          logOutput.textContent = data.log + '\n';
+        } else {
+          logOutput.textContent = '';
+        }
+        logOutput.scrollTop = logOutput.scrollHeight;
       }
-      logOutput.scrollTop = logOutput.scrollHeight;
     }).catch(() => {
-      logOutput.textContent = 'Failed to load historical logs.\n';
+      if (!wsFired) logOutput.textContent = 'Failed to load historical logs.\n';
     });
 
     activeWs = connectBuildLogs(buildId, (line) => {
+      if (!wsFired) {
+        wsFired = true;
+        logOutput.innerHTML = ''; // Clear HTTP fetching text so WS can populate entirely
+      }
       const div = document.createElement('div');
       if (line.includes('✓')) div.style.color = 'var(--success)';
       if (line.includes('Error:') || line.includes('FAILED')) div.style.color = 'var(--error)';
