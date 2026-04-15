@@ -44,12 +44,13 @@ router.post('/logout', (req, res) => {
     res.json({ message: 'Logged out' });
 });
 
-import { authMiddleware } from '../auth.js';
+import { signup, login, generateToken, authMiddleware } from '../auth.js';
 
 // GET /api/auth/me — get current user
 router.get('/me', authMiddleware, (req, res) => {
     const { password_hash, github_token, ...userData } = req.user;
-    res.json({ user: { ...userData, has_github_token: !!github_token } });
+    const token = generateToken(req.user);
+    res.json({ user: { ...userData, has_github_token: !!github_token }, token });
 });
 
 // PUT /api/auth/me - update current user

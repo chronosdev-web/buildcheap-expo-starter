@@ -86,6 +86,7 @@ export const auth = {
         const data = await apiFetch('/auth/me');
         store.update({
             user: data.user,
+            token: data.token,
             isAuthenticated: true,
         });
         return data;
