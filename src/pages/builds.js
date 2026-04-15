@@ -219,7 +219,11 @@ export function renderBuilds(container) {
   };
 
   window.selectBuild = (id) => {
-    if (selectedBuildId === id) return; // Ignore clicking already selected build
+    if (selectedBuildId === id) {
+      // Force refresh logs if clicked again to handle dropped logs or UI bugs
+      switchLogStream(id);
+      return;
+    }
     selectedBuildId = id;
 
     const items = document.querySelectorAll('.build-item');

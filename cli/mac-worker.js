@@ -16,6 +16,8 @@ import os from 'os';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import FormData from 'form-data';
+import { pipeline } from 'stream/promises';
+import { Readable } from 'stream';
 
 const SERVER_URL = process.env.SERVER_URL || 'https://buildcheap.dev';
 const WORKER_API_KEY = process.env.WORKER_API_KEY || 'mac-worker-secret-42';
@@ -184,13 +186,33 @@ async function processJob(job) {
     fs.mkdirSync(workDir, { recursive: true });
 
     try {
-        // Step 1: Clone
-        streamLog(job.id, '[Remote Agent] Cloning source repository...');
-        let cloneUrl = job.repo_url;
-        if (job.github_token) cloneUrl = cloneUrl.replace('https://github.com/', `https://git:${job.github_token}@github.com/`);
+        // Step 1: Clone or Download Source
+        streamLog(job.id, '[Remote Agent] Fetching source repository...');
+        if (job.repo_url && (job.repo_url.startsWith('/') || job.repo_url.startsWith('file://'))) {
+            // Download compressed source from API
+            streamLog(job.id, 'Downloading local CLI upload from BuildCheap dev server...');
+            const res = await fetch(`${SERVER_URL}/api/worker/jobs/${job.id}/source`, {
+                headers: { 'x-api-key': WORKER_API_KEY }
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to download source`);
 
-        await runCommand('git', ['clone', '--depth', '1', cloneUrl, '.'], workDir, job.id);
-        streamLog(job.id, '✓ Code pulled');
+            const tarPath = path.join(workDir, 'source.tar.gz');
+            const dest = fs.createWriteStream(tarPath);
+            await pipeline(res.body, dest);
+
+            // Extract tar using local command
+            await runCommand('tar', ['-xzf', 'source.tar.gz'], workDir, job.id);
+            fs.unlinkSync(tarPath);
+            streamLog(job.id, '✓ Code downloaded and extracted');
+        } else if (job.repo_url) {
+            let cloneUrl = job.repo_url;
+            if (job.github_token && cloneUrl && typeof cloneUrl === 'string') cloneUrl = cloneUrl.replace('https://github.com/', `https://git:${job.github_token}@github.com/`);
+
+            await runCommand('git', ['clone', '--depth', '1', cloneUrl, '.'], workDir, job.id);
+            streamLog(job.id, '✓ Code pulled via Git');
+        } else {
+            throw new Error("No repository URL configured and no source files attached. Please link a GitHub repository or use the CLI to upload source files.");
+        }
 
         // Setup sandbox home
         fs.mkdirSync(sandboxHome, { recursive: true });
@@ -225,7 +247,7 @@ async function processJob(job) {
         // Apple Setup
         const iosDir = path.join(workDir, 'ios');
         const workspace = fs.readdirSync(iosDir).find(f => f.endsWith('.xcworkspace'));
-        const scheme = workspace.replace('.xcworkspace', '');
+        const scheme = workspace ? workspace.replace('.xcworkspace', '') : 'App';
         const archivePath = path.join(workDir, 'build', 'app.xcarchive');
         const exportPath = path.join(workDir, 'build', 'export');
 
@@ -272,16 +294,18 @@ async function processJob(job) {
             fs.writeFileSync(path.join(profilesDir, `${provSetup.profileUUID}.mobileprovision`), Buffer.from(provSetup.profileContent, 'base64'));
 
             // Inject Manual signing to project
-            const pbxprojPath = path.join(iosDir, workspace.replace('.xcworkspace', '.xcodeproj'), 'project.pbxproj');
-            let pbxContent = fs.readFileSync(pbxprojPath, 'utf8').replace(/CODE_SIGN_STYLE = Automatic;/g, 'CODE_SIGN_STYLE = Manual;').replace(/ProvisioningStyle = Automatic;/g, 'ProvisioningStyle = Manual;');
-            fs.writeFileSync(pbxprojPath, pbxContent);
+            if (workspace && fs.existsSync(iosDir)) {
+                const pbxprojPath = path.join(iosDir, workspace.replace('.xcworkspace', '.xcodeproj'), 'project.pbxproj');
+                let pbxContent = fs.readFileSync(pbxprojPath, 'utf8').replace(/CODE_SIGN_STYLE = Automatic;/g, 'CODE_SIGN_STYLE = Manual;').replace(/ProvisioningStyle = Automatic;/g, 'ProvisioningStyle = Manual;');
+                fs.writeFileSync(pbxprojPath, pbxContent);
 
-            signingFlags = [
-                `DEVELOPMENT_TEAM=${keys.teamId}`,
-                `CODE_SIGN_IDENTITY=iPhone Distribution`,
-                `PROVISIONING_PROFILE_SPECIFIER=${provSetup.profileName}`,
-                `CODE_SIGN_STYLE=Manual`
-            ];
+                signingFlags = [
+                    `DEVELOPMENT_TEAM=${keys.teamId}`,
+                    `CODE_SIGN_IDENTITY=iPhone Distribution`,
+                    `PROVISIONING_PROFILE_SPECIFIER=${provSetup.profileName}`,
+                    `CODE_SIGN_STYLE=Manual`
+                ];
+            }
         }
 
         // Step 5: Archive
