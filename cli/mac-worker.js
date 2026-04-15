@@ -250,12 +250,20 @@ async function processJob(job) {
         streamLog(job.id, '[Remote Agent] Installing CocoaPods...');
         await runCommand('pod', ['install'], path.join(workDir, 'ios'), job.id);
 
-        // Apple Setup
         const iosDir = path.join(workDir, 'ios');
         const workspace = fs.readdirSync(iosDir).find(f => f.endsWith('.xcworkspace'));
         const scheme = workspace ? workspace.replace('.xcworkspace', '') : 'App';
         const archivePath = path.join(workDir, 'build', 'app.xcarchive');
         const exportPath = path.join(workDir, 'build', 'export');
+
+        let actualBundleId = job.bundle_id;
+        try {
+            if (!actualBundleId && fs.existsSync(path.join(workDir, 'app.json'))) {
+                const appJson = JSON.parse(fs.readFileSync(path.join(workDir, 'app.json'), 'utf8'));
+                actualBundleId = appJson.expo?.ios?.bundleIdentifier;
+            }
+        } catch (e) { }
+        if (!actualBundleId) actualBundleId = 'com.buildcheap.default';
 
         const keys = {
             issuerId: job.secrets?.apple_issuer_id,
@@ -278,7 +286,7 @@ async function processJob(job) {
             const csrContent = fs.readFileSync(path.join(signingDir, 'dist.csr'), 'utf8');
 
             // Provision
-            const provSetup = await provisionSigning(token, csrContent, job.bundle_id);
+            const provSetup = await provisionSigning(token, csrContent, actualBundleId);
             fs.writeFileSync(path.join(signingDir, 'dist.cer'), Buffer.from(provSetup.certContent, 'base64'));
 
             // Convert to DER for importing
