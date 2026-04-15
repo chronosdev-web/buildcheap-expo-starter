@@ -314,6 +314,17 @@ async function processJob(job) {
             await runCommand('openssl', ['x509', '-inform', 'DER', '-in', path.join(signingDir, 'dist.cer'), '-out', path.join(signingDir, 'dist.pem')], workDir, job.id, { HOME: sandboxHome });
             await runCommand('openssl', ['pkcs12', '-export', '-inkey', path.join(signingDir, 'dist.key'), '-in', path.join(signingDir, 'dist.pem'), '-out', path.join(signingDir, 'dist.p12'), '-passout', 'pass:buildcheap'], workDir, job.id, { HOME: sandboxHome });
 
+            if (!keys.teamId || keys.teamId === 'null') {
+                try {
+                    const subject = execSync(`openssl x509 -in "${path.join(signingDir, 'dist.pem')}" -noout -subject`).toString();
+                    const ouMatch = subject.match(/OU\s*=\s*([A-Z0-9]{10})/);
+                    if (ouMatch && ouMatch[1]) {
+                        keys.teamId = ouMatch[1];
+                        streamLog(job.id, `[Remote Agent] Dynamically extracted Apple Team ID ${keys.teamId} from Distribution Certificate`);
+                    }
+                } catch (e) { }
+            }
+
             // Create Keychain
             const keychainPath = path.join(signingDir, 'build.keychain-db');
             await runCommand('security', ['create-keychain', '-p', 'buildcheap', keychainPath], workDir, job.id);
