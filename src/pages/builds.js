@@ -171,7 +171,12 @@ export function renderBuilds(container) {
     });
   }
 
+  let currentStreamId = 0;
+
   function switchLogStream(buildId) {
+    currentStreamId++;
+    const myStreamId = currentStreamId;
+
     if (activeWs) {
       activeWs.close();
       activeWs = null;
@@ -181,26 +186,45 @@ export function renderBuilds(container) {
     if (!logOutput) return;
     logOutput.innerHTML = 'Fetching logs...<br/>';
 
-    let wsFired = false;
+    let httpLoaded = false;
+    let wsBuffer = [];
 
     builds.log(buildId).then(data => {
-      if (!wsFired) {
-        if (data.log) {
-          logOutput.textContent = data.log + '\n';
-        } else {
-          logOutput.textContent = '';
-        }
-        logOutput.scrollTop = logOutput.scrollHeight;
+      if (myStreamId !== currentStreamId) return;
+
+      if (data.log) {
+        logOutput.textContent = data.log + '\n';
+      } else {
+        logOutput.textContent = '';
       }
+
+      httpLoaded = true;
+
+      // Flush any WS messages that arrived while HTTP was fetching
+      wsBuffer.forEach(line => {
+        const div = document.createElement('div');
+        if (line.includes('✓')) div.style.color = 'var(--success)';
+        if (line.includes('Error:') || line.includes('FAILED')) div.style.color = 'var(--error)';
+        div.textContent = line;
+        logOutput.appendChild(div);
+      });
+      wsBuffer = [];
+      logOutput.scrollTop = logOutput.scrollHeight;
+
     }).catch(() => {
-      if (!wsFired) logOutput.textContent = 'Failed to load historical logs.\n';
+      if (myStreamId !== currentStreamId) return;
+      logOutput.textContent = 'Failed to load historical logs.\n';
+      httpLoaded = true;
     });
 
     activeWs = connectBuildLogs(buildId, (line) => {
-      if (!wsFired) {
-        wsFired = true;
-        logOutput.innerHTML = ''; // Clear HTTP fetching text so WS can populate entirely
+      if (myStreamId !== currentStreamId) return;
+
+      if (!httpLoaded) {
+        wsBuffer.push(line);
+        return;
       }
+
       const div = document.createElement('div');
       if (line.includes('✓')) div.style.color = 'var(--success)';
       if (line.includes('Error:') || line.includes('FAILED')) div.style.color = 'var(--error)';

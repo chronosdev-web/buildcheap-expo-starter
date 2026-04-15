@@ -227,14 +227,6 @@ wss.on('connection', (ws) => {
                         buildLogListeners.set(msg.buildId, new Set());
                     }
                     buildLogListeners.get(msg.buildId).add(ws);
-                    ws.send(JSON.stringify({ type: 'subscribed', buildId: msg.buildId }));
-
-                    // Send existing logs if build already has them
-                    if (build.log) {
-                        build.log.split('\n').forEach(line => {
-                            ws.send(JSON.stringify({ type: 'log', buildId: msg.buildId, line }));
-                        });
-                    }
                 }
             }
         } catch {
