@@ -271,6 +271,28 @@ async function processJob(job) {
                 actualBundleId = appJson.expo?.ios?.bundleIdentifier;
             }
         } catch (e) { }
+        // Fallback: read from .env file (Expo projects often store IOS_BUNDLE_ID there)
+        if (!actualBundleId) {
+            try {
+                const envPath = path.join(workDir, '.env');
+                if (fs.existsSync(envPath)) {
+                    const envContent = fs.readFileSync(envPath, 'utf8');
+                    const match = envContent.match(/^IOS_BUNDLE_ID\s*=\s*(.+)$/m);
+                    if (match && match[1]) actualBundleId = match[1].trim();
+                }
+            } catch (e) { }
+        }
+        // Fallback: read from generated pbxproj after expo prebuild
+        if (!actualBundleId && workspace) {
+            try {
+                const pbxPath = path.join(iosDir, workspace.replace('.xcworkspace', '.xcodeproj'), 'project.pbxproj');
+                if (fs.existsSync(pbxPath)) {
+                    const pbx = fs.readFileSync(pbxPath, 'utf8');
+                    const m = pbx.match(/PRODUCT_BUNDLE_IDENTIFIER\s*=\s*"?([^";]+)"?;/);
+                    if (m && m[1] && !m[1].includes('$')) actualBundleId = m[1];
+                }
+            } catch (e) { }
+        }
         if (!actualBundleId) actualBundleId = 'com.buildcheap.default';
 
         const keys = {
