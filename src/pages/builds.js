@@ -219,11 +219,6 @@ export function renderBuilds(container) {
   };
 
   window.selectBuild = (id) => {
-    if (selectedBuildId === id) {
-      // Force refresh logs if clicked again to handle dropped logs or UI bugs
-      switchLogStream(id);
-      return;
-    }
     selectedBuildId = id;
 
     const items = document.querySelectorAll('.build-item');
@@ -231,10 +226,7 @@ export function renderBuilds(container) {
     const clicked = Array.from(items).find(item => item.getAttribute('onclick')?.includes(id));
     if (clicked) clicked.classList.add('selected');
 
-    const logOutput = document.getElementById('buildLogOutput');
-    if (logOutput) logOutput.innerHTML = 'Fetching logs...<br/>';
-
-    setTimeout(() => loadBuilds(false), 50); // Yield to render thread, then fetch
+    switchLogStream(id);
   };
 
   const pollInterval = setInterval(() => {
