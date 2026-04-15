@@ -76,7 +76,8 @@ router.post('/:id/upload', (req, res, next) => {
         fs.mkdirSync(sourceDir, { recursive: true });
 
         if (ext === '.zip') {
-            await runCmd('unzip', ['-o', archivePath, '-d', sourceDir]);
+            const extract = (await import('extract-zip')).default;
+            await extract(archivePath, { dir: path.resolve(sourceDir) });
         } else {
             await runCmd('tar', ['-xzf', archivePath, '-C', sourceDir, '--strip-components=1']);
         }
