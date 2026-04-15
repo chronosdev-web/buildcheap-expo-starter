@@ -71,7 +71,6 @@ export function renderProjects(container) {
                     
                     <div style="margin-top:var(--space-md);display:flex;gap:var(--space-sm);flex-wrap:wrap;margin-bottom:var(--space-xl);">
                         <button class="btn btn-primary btn-sm trigger-build-btn" data-id="${p.id}" data-platform="ios" style="flex:1;">Build Native (iOS)</button>
-                        ${(!p.repo_url || p.repo_url.startsWith('file://')) ? `<button class="btn btn-secondary btn-sm upload-source-btn" data-id="${p.id}" data-name="${p.name}" title="Upload a .zip or .tar.gz of your project source code">📤 Upload Source</button>` : ''}
                     </div>
                 </div>
 
@@ -521,118 +520,6 @@ export function renderProjects(container) {
         });
 
         reloadSecrets();
-      });
-    });
-
-    // Upload Source
-    const uploadBtns = pageContent.querySelectorAll('.upload-source-btn');
-    uploadBtns.forEach(btn => {
-      btn.addEventListener('click', () => {
-        const projectId = btn.getAttribute('data-id');
-        const projectName = btn.getAttribute('data-name');
-
-        const modalHtml = `
-          <div id="uploadModalOverlay" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);backdrop-filter:blur(4px);z-index:9999;display:flex;align-items:center;justify-content:center;padding:var(--space-xl);">
-            <div class="card animate-in" style="width:100%;max-width:500px;padding:var(--space-xl);text-align:center;">
-              <h3 style="margin-bottom:var(--space-sm);">Upload Source: ${projectName}</h3>
-              <p style="color:var(--text-tertiary);font-size:0.875rem;margin-bottom:var(--space-xl);">
-                Select a <code>.zip</code> or <code>.tar.gz</code> archive of your project source code. BuildCheap will extract it and prepare it for building — no GitHub required.
-              </p>
-              
-              <div id="uploadDropZone" style="border:2px dashed var(--border-medium);border-radius:var(--radius-lg);padding:var(--space-xl);cursor:pointer;transition:all 0.2s ease;margin-bottom:var(--space-md);">
-                <div style="font-size:2rem;margin-bottom:var(--space-sm);">📁</div>
-                <div style="font-weight:600;color:var(--text-primary);">Click to select a file</div>
-                <div style="font-size:0.75rem;color:var(--text-tertiary);margin-top:4px;">.zip or .tar.gz — max 500MB</div>
-                <input type="file" id="projectFileInput" accept=".zip,.tar.gz,.tgz,application/zip,application/gzip" style="display:none;" />
-              </div>
-              
-              <div id="uploadProgressContainer" style="display:none;margin-bottom:var(--space-md);">
-                <div style="font-weight:600;margin-bottom:var(--space-xs);" id="uploadStatusText">Uploading...</div>
-                <div style="height:6px;background:var(--border-medium);border-radius:3px;overflow:hidden;">
-                  <div id="uploadProgressBar" style="height:100%;background:var(--primary);width:0%;transition:width 0.3s ease;"></div>
-                </div>
-              </div>
-              
-              <div id="uploadResultMsg" style="font-size:0.875rem;display:none;margin-bottom:var(--space-md);"></div>
-              
-              <button class="btn btn-ghost" id="closeUploadBtn">Close</button>
-            </div>
-          </div>
-        `;
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
-
-        const overlay = document.getElementById('uploadModalOverlay');
-        const dropZone = document.getElementById('uploadDropZone');
-        const fileInput = document.getElementById('projectFileInput');
-        const progressContainer = document.getElementById('uploadProgressContainer');
-        const progressBar = document.getElementById('uploadProgressBar');
-        const statusText = document.getElementById('uploadStatusText');
-        const resultMsg = document.getElementById('uploadResultMsg');
-        const closeBtn = document.getElementById('closeUploadBtn');
-
-        const close = () => { overlay.remove(); loadProjects(); };
-        closeBtn.addEventListener('click', close);
-
-        dropZone.addEventListener('click', () => fileInput.click());
-
-        // Drag & drop support
-        dropZone.addEventListener('dragover', (e) => {
-          e.preventDefault();
-          dropZone.style.borderColor = 'var(--primary)';
-          dropZone.style.background = 'rgba(99,102,241,0.05)';
-        });
-        dropZone.addEventListener('dragleave', () => {
-          dropZone.style.borderColor = 'var(--border-medium)';
-          dropZone.style.background = 'transparent';
-        });
-        dropZone.addEventListener('drop', (e) => {
-          e.preventDefault();
-          dropZone.style.borderColor = 'var(--border-medium)';
-          dropZone.style.background = 'transparent';
-          if (e.dataTransfer.files.length > 0) {
-            handleUploadFile(e.dataTransfer.files[0]);
-          }
-        });
-
-        fileInput.addEventListener('change', () => {
-          if (fileInput.files.length > 0) {
-            handleUploadFile(fileInput.files[0]);
-          }
-        });
-
-        async function handleUploadFile(file) {
-          if (!file.name.endsWith('.zip') && !file.name.endsWith('.tar.gz') && !file.name.endsWith('.tgz')) {
-            resultMsg.innerText = 'Invalid file type. Please upload a .zip or .tar.gz archive.';
-            resultMsg.style.color = 'var(--error)';
-            resultMsg.style.display = 'block';
-            return;
-          }
-
-          dropZone.style.display = 'none';
-          progressContainer.style.display = 'block';
-          statusText.innerText = `Uploading ${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB)...`;
-          progressBar.style.width = '30%';
-
-          try {
-            progressBar.style.width = '60%';
-            statusText.innerText = 'Extracting and preparing source...';
-
-            const result = await projects.upload(projectId, file);
-
-            progressBar.style.width = '100%';
-            statusText.innerText = 'Done!';
-            resultMsg.innerText = `✅ Source uploaded! ${result.files} files extracted. You can now click "Build Native (iOS)" to compile.`;
-            resultMsg.style.color = 'var(--success)';
-            resultMsg.style.display = 'block';
-            closeBtn.innerText = 'Done';
-          } catch (err) {
-            progressContainer.style.display = 'none';
-            dropZone.style.display = 'block';
-            resultMsg.innerText = `❌ ${err.message}`;
-            resultMsg.style.color = 'var(--error)';
-            resultMsg.style.display = 'block';
-          }
-        }
       });
     });
 
