@@ -98,10 +98,16 @@ function runCommand(cmd, args, cwd, buildId, extraEnv = {}) {
  * APPLE APP STORE CONNECT API LOGIC
  * ------------------------------------------------------------- */
 function generateASCToken(keys) {
-    return jwt.sign({}, keys.privateKey, {
+    const now = Math.floor(Date.now() / 1000);
+    const payload = {
+        iss: keys.issuerId,
+        iat: now,
+        exp: now + 1200,
+        aud: 'appstoreconnect-v1'
+    };
+
+    return jwt.sign(payload, keys.privateKey, {
         algorithm: 'ES256',
-        expiresIn: '20m',
-        issuer: keys.issuerId,
         header: { alg: 'ES256', kid: keys.keyId, typ: 'JWT' }
     });
 }
