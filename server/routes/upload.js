@@ -15,11 +15,24 @@ const router = Router();
 const UPLOAD_DIR = process.env.ARTIFACTS_DIR || './artifacts';
 const MAX_SIZE = 500 * 1024 * 1024; // 500MB
 
+import multer from 'multer';
+import os from 'os';
+
+const upload = multer({ dest: path.join(os.tmpdir(), 'buildcheap-uploads') });
+
 // POST /api/projects/:id/upload — upload project source as zip/tar.gz
-router.post('/:id/upload', async (req, res) => {
+router.post('/:id/upload', (req, res, next) => {
+    const contentType = req.headers['content-type'] || '';
+    if (contentType.includes('multipart/form-data')) {
+        return upload.single('projectFile')(req, res, next);
+    }
+    next();
+}, async (req, res) => {
+    let tmpFile = null;
     try {
         const project = queries.getProjectById.get(req.params.id);
         if (!project || project.user_id !== req.user.id) {
+            if (req.file) fs.unlinkSync(req.file.path);
             return res.status(404).json({ error: 'Project not found' });
         }
 
@@ -27,12 +40,14 @@ router.post('/:id/upload', async (req, res) => {
         const contentLength = parseInt(req.headers['content-length'] || '0');
 
         if (contentLength > MAX_SIZE) {
+            if (req.file) fs.unlinkSync(req.file.path);
             return res.status(413).json({ error: `Upload too large. Max ${MAX_SIZE / 1024 / 1024}MB` });
         }
 
-        // Determine file type
         let ext = '.tar.gz';
-        if (contentType === 'application/zip' || req.query.format === 'zip') {
+        if (req.file && (req.file.originalname.endsWith('.zip') || req.file.mimetype === 'application/zip')) {
+            ext = '.zip';
+        } else if (!req.file && (contentType === 'application/zip' || req.query.format === 'zip')) {
             ext = '.zip';
         }
 
@@ -40,21 +55,24 @@ router.post('/:id/upload', async (req, res) => {
         const sourceDir = path.join(projectDir, 'source');
         const archivePath = path.join(projectDir, `upload${ext}`);
 
-        // Clean previous upload
         if (fs.existsSync(sourceDir)) {
             fs.rmSync(sourceDir, { recursive: true, force: true });
         }
         fs.mkdirSync(projectDir, { recursive: true });
 
-        // Stream body to file
-        const writeStream = fs.createWriteStream(archivePath);
-        await new Promise((resolve, reject) => {
-            req.pipe(writeStream);
-            writeStream.on('finish', resolve);
-            writeStream.on('error', reject);
-        });
+        if (req.file) {
+            fs.renameSync(req.file.path, archivePath);
+            tmpFile = archivePath;
+        } else {
+            tmpFile = archivePath;
+            const writeStream = fs.createWriteStream(archivePath);
+            await new Promise((resolve, reject) => {
+                req.pipe(writeStream);
+                writeStream.on('finish', resolve);
+                writeStream.on('error', reject);
+            });
+        }
 
-        // Extract archive
         fs.mkdirSync(sourceDir, { recursive: true });
 
         if (ext === '.zip') {
