@@ -44,7 +44,7 @@ router.post('/logout', (req, res) => {
     res.json({ message: 'Logged out' });
 });
 
-import { signup, login, generateToken, authMiddleware } from '../auth.js';
+import { generateToken, authMiddleware } from '../auth.js';
 
 // GET /api/auth/me — get current user
 router.get('/me', authMiddleware, (req, res) => {
