@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import db, { queries } from '../db.js';
 import { decryptKey } from '../apple-api.js';
+import { getCredentials as getAppleCredentials } from '../apple-credentials.js';
 
 const router = Router();
 
@@ -61,6 +62,15 @@ router.get('/jobs/next', (req, res) => {
             try { secrets[row.key_name] = decryptKey(row.value_encrypted, row.iv, row.auth_tag); }
             catch (err) { /* ignore corrupt keys */ }
         }
+
+        try {
+            const appleCreds = getAppleCredentials(nextJob.user_id);
+            if (appleCreds) {
+                secrets['APPLE_ISSUER_ID'] = appleCreds.issuerId;
+                secrets['APPLE_KEY_ID'] = appleCreds.keyId;
+                secrets['APPLE_P8'] = appleCreds.privateKey;
+            }
+        } catch (err) { /* no apple creds */ }
 
         res.json({
             job: {
