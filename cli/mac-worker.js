@@ -123,10 +123,18 @@ async function ascFetch(endpoint, token, options = {}) {
     return data;
 }
 
-async function provisionSigning(token, csrContent, bundleId) {
+async function provisionSigning(token, csrContent, bundleId, isNewKey = false) {
     // 1. Certificate
     const existingCerts = await ascFetch('/certificates?filter[certificateType]=IOS_DISTRIBUTION&limit=200', token);
     const valid = (existingCerts.data || []).filter(c => new Date(c.attributes.expirationDate) > new Date());
+
+    if (isNewKey && valid.length > 0) {
+        for (const c of valid) {
+            try { await ascFetch(`/certificates/${c.id}`, token, { method: 'DELETE' }); } catch (e) { }
+        }
+        valid.length = 0; // Clear them so a new one is forced
+    }
+
     let certId;
     if (valid.length > 0) {
         certId = valid[0].id;
@@ -281,12 +289,25 @@ async function processJob(job) {
             const signingDir = path.join(workDir, '.signing');
             fs.mkdirSync(signingDir, { recursive: true });
 
-            // Generate CSR
-            await runCommand('openssl', ['req', '-new', '-newkey', 'rsa:2048', '-nodes', '-keyout', path.join(signingDir, 'dist.key'), '-out', path.join(signingDir, 'dist.csr'), '-subj', '/CN=BuildCheap Distribution/O=BuildCheap/C=US'], workDir, job.id);
+            const persistentSigningDir = path.join(process.env.HOME || '/Users/administrator', '.buildcheap_certs');
+            fs.mkdirSync(persistentSigningDir, { recursive: true });
+
+            const persistentKey = path.join(persistentSigningDir, 'dist.key');
+            const persistentCsr = path.join(persistentSigningDir, 'dist.csr');
+
+            let isNewKey = false;
+            if (!fs.existsSync(persistentKey) || !fs.existsSync(persistentCsr)) {
+                await runCommand('openssl', ['req', '-new', '-newkey', 'rsa:2048', '-nodes', '-keyout', persistentKey, '-out', persistentCsr, '-subj', '/CN=BuildCheap Distribution/O=BuildCheap/C=US'], persistentSigningDir, job.id, { HOME: sandboxHome });
+                isNewKey = true;
+            }
+
+            fs.copyFileSync(persistentKey, path.join(signingDir, 'dist.key'));
+            fs.copyFileSync(persistentCsr, path.join(signingDir, 'dist.csr'));
+
             const csrContent = fs.readFileSync(path.join(signingDir, 'dist.csr'), 'utf8');
 
             // Provision
-            const provSetup = await provisionSigning(token, csrContent, actualBundleId);
+            const provSetup = await provisionSigning(token, csrContent, actualBundleId, isNewKey);
             fs.writeFileSync(path.join(signingDir, 'dist.cer'), Buffer.from(provSetup.certContent, 'base64'));
 
             // Convert to DER for importing
