@@ -112,7 +112,7 @@ router.post('/jobs/:id/log', (req, res) => {
         const build = queries.getBuildById.get(id);
         if (!build) return res.status(404).json({ error: 'Build not found' });
 
-        const newLogAppend = lines.join('\\n') + '\\n';
+        const newLogAppend = lines.join('\n') + '\n';
 
         // Append raw log to database immediately
         const currentLog = build.log || '';

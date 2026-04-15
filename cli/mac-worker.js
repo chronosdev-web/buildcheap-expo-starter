@@ -87,8 +87,8 @@ function runCommand(cmd, args, cwd, buildId, extraEnv = {}) {
         };
 
         const proc = spawn(cmd, args, { cwd, env: safeEnv, stdio: ['pipe', 'pipe', 'pipe'] });
-        proc.stdout.on('data', data => data.toString().split('\\n').filter(l => l.trim()).forEach(line => streamLog(buildId, line)));
-        proc.stderr.on('data', data => data.toString().split('\\n').filter(l => l.trim()).forEach(line => streamLog(buildId, line)));
+        proc.stdout.on('data', data => data.toString().split('\n').filter(l => l.trim()).forEach(line => streamLog(buildId, line)));
+        proc.stderr.on('data', data => data.toString().split('\n').filter(l => l.trim()).forEach(line => streamLog(buildId, line)));
         proc.on('close', code => code === 0 ? resolve() : reject(new Error(`'${cmd}' exited with code ${code}`)));
         proc.on('error', err => reject(new Error(`Failed to start: ${cmd} — ${err.message}`)));
     });
@@ -389,7 +389,7 @@ async function processJob(job) {
             // Extract teamId if missing
             if (!keys.teamId && fs.existsSync(path.join(workDir, '.signing', 'dist.pem'))) {
                 const subject = execSync('/usr/bin/openssl x509 -noout -subject -in ' + path.join(workDir, '.signing', 'dist.pem'), { encoding: 'utf8' });
-                const match = subject.match(/OU\\s*=\\s*([A-Z0-9]{10})/);
+                const match = subject.match(/OU\s*=\s*([A-Z0-9]{10})/);
                 if (match) keys.teamId = match[1];
             }
 
@@ -408,7 +408,7 @@ async function processJob(job) {
             streamLog(job.id, '[Remote Agent] Uploading .ipa back to dashboard...');
             const formData = new FormData();
             formData.append('artifact', fs.createReadStream(ipaPath));
-            await apiFetch(`/ api / worker / jobs / ${job.id}/artifact`, 'POST', formData, true);
+            await apiFetch(`/api/worker/jobs/${job.id}/artifact`, 'POST', formData, true);
 
             // Submit to Apple
             await uploadIpaToAsc(ipaPath, workDir, job.id, keys);
