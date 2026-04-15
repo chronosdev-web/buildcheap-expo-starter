@@ -334,12 +334,13 @@ async function processJob(job) {
                 let pbxContent = fs.readFileSync(pbxprojPath, 'utf8').replace(/CODE_SIGN_STYLE = Automatic;/g, 'CODE_SIGN_STYLE = Manual;').replace(/ProvisioningStyle = Automatic;/g, 'ProvisioningStyle = Manual;');
                 fs.writeFileSync(pbxprojPath, pbxContent);
 
-                signingFlags = [
-                    `DEVELOPMENT_TEAM=${keys.teamId}`,
-                    `CODE_SIGN_IDENTITY=iPhone Distribution`,
-                    `PROVISIONING_PROFILE_SPECIFIER=${provSetup.profileName}`,
-                    `CODE_SIGN_STYLE=Manual`
-                ];
+                signingFlags = [];
+                if (keys.teamId && keys.teamId !== 'null') {
+                    signingFlags.push(`DEVELOPMENT_TEAM=${keys.teamId}`);
+                }
+                signingFlags.push(`CODE_SIGN_IDENTITY=iPhone Distribution`);
+                signingFlags.push(`PROVISIONING_PROFILE_SPECIFIER=${provSetup.profileName}`);
+                signingFlags.push(`CODE_SIGN_STYLE=Manual`);
             }
         }
 
