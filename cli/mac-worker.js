@@ -291,7 +291,7 @@ async function processJob(job) {
 
             // Convert to DER for importing
             await runCommand('openssl', ['x509', '-inform', 'DER', '-in', path.join(signingDir, 'dist.cer'), '-out', path.join(signingDir, 'dist.pem')], workDir, job.id, { HOME: sandboxHome });
-            await runCommand('openssl', ['pkcs12', '-export', '-legacy', '-inkey', path.join(signingDir, 'dist.key'), '-in', path.join(signingDir, 'dist.pem'), '-out', path.join(signingDir, 'dist.p12'), '-passout', 'pass:buildcheap'], workDir, job.id, { HOME: sandboxHome });
+            await runCommand('openssl', ['pkcs12', '-export', '-inkey', path.join(signingDir, 'dist.key'), '-in', path.join(signingDir, 'dist.pem'), '-out', path.join(signingDir, 'dist.p12'), '-passout', 'pass:buildcheap'], workDir, job.id, { HOME: sandboxHome });
 
             // Create Keychain
             const keychainPath = path.join(signingDir, 'build.keychain-db');
