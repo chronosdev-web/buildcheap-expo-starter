@@ -75,8 +75,20 @@ async function updateStatus(buildId, status, errorMessage = null, durationSecond
 
 function runCommand(cmd, args, cwd, buildId, extraEnv = {}) {
     return new Promise((resolve, reject) => {
+        const nodePaths = [
+            '/usr/local/bin',
+            '/opt/homebrew/bin',
+            '/opt/homebrew/sbin',
+            `${process.env.HOME}/.nvm/versions/node/v22.16.0/bin`,
+            `${process.env.HOME}/.nvm/versions/node/v20.19.0/bin`,
+            `${process.env.HOME}/.nvm/versions/node/v18.20.8/bin`,
+            '/usr/bin',
+            '/bin',
+            '/usr/sbin',
+            '/sbin',
+        ].join(':');
         const safeEnv = {
-            PATH: process.env.PATH,
+            PATH: `${nodePaths}:${process.env.PATH || ''}`,
             HOME: extraEnv.HOME || process.env.HOME,
             USER: process.env.USER,
             SHELL: process.env.SHELL,
