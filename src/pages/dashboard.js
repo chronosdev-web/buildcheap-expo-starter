@@ -1,7 +1,18 @@
 // Dashboard overview page — fully dynamic, no placeholder data
 import { createDashboardLayout } from '../components/layout.js';
-import { dashboard } from '../api.js';
+import { dashboard, builds } from '../api.js';
 import { store } from '../store.js';
+
+window.cancelBuild = async (id) => {
+  if (!confirm('Are you sure you want to cancel this build? Your $0.50 credit will be refunded seamlessly.')) return;
+  try {
+    await builds.cancel(id);
+    alert('Build cancelled successfully! Credit has been safely refunded to your account.');
+    location.reload();
+  } catch (e) {
+    alert('Failed to cancel build: ' + e.message);
+  }
+};
 
 function formatDuration(seconds) {
   if (!seconds) return '—';
@@ -107,83 +118,85 @@ function renderDashboardContent(data) {
             </div>
             <div class="build-platform">${platformBadge(b.platform)}</div>
             <div class="build-duration">${formatDuration(b.duration)}</div>
-            <div class="build-time">${b.status === 'building' ? 'Building...' : timeAgo(b.created_at)}</div>
+            <div class="build-time">${b.status === 'building' || b.status === 'queued' ?
+        `${b.status === 'building' ? 'Building...' : 'Queued'} <a href="javascript:void(0)" onclick="window.cancelBuild('${b.id}')" style="color:#ef4444; margin-left:6px; font-weight:600; text-decoration:underline;">Cancel</a>`
+        : timeAgo(b.created_at)}</div>
           </div>`).join('');
   }
 
   // Projects sidebar
   let projectsHtml;
   if (projects.length === 0) {
-    projectsHtml = `<div class="card" style="padding:var(--space-lg);text-align:center;color:var(--text-tertiary);">
+    projectsHtml = `< div class="card" style = "padding:var(--space-lg);text-align:center;color:var(--text-tertiary);" >
           <div style="font-size:1.5rem;margin-bottom:var(--space-xs);">📦</div>
           <div>No projects yet</div>
           <a href="#/projects" class="btn btn-primary btn-sm" style="margin-top:var(--space-sm);">Create Project</a>
-        </div>`;
+        </div > `;
   } else {
     projectsHtml = projects.map(p => `
-          <div class="card" style="padding:var(--space-md);cursor:pointer;" onclick="location.hash='#/projects'">
-            <div style="display:flex;align-items:center;gap:var(--space-sm);">
-              <div class="project-icon both" style="width:32px;height:32px;font-size:0.9rem;">📱</div>
-              <div>
-                <div style="font-weight:600;font-size:0.875rem;">${p.name}</div>
-                <div style="font-size:0.75rem;color:var(--text-tertiary);">${p.platform || 'ios'} · ${p.slug}</div>
-              </div>
-              ${projectStatusBadge(p, recent_builds)}
-            </div>
-          </div>`).join('');
+    < div class="card" style = "padding:var(--space-md);cursor:pointer;" onclick = "location.hash='#/projects'" >
+      <div style="display:flex;align-items:center;gap:var(--space-sm);">
+        <div class="project-icon both" style="width:32px;height:32px;font-size:0.9rem;">📱</div>
+        <div>
+          <div style="font-weight:600;font-size:0.875rem;">${p.name}</div>
+          <div style="font-size:0.75rem;color:var(--text-tertiary);">${p.platform || 'ios'} · ${p.slug}</div>
+        </div>
+        ${projectStatusBadge(p, recent_builds)}
+      </div>
+          </div > `).join('');
   }
 
   // Savings tracker
   const savingsHtml = stats.total_builds > 0 ? `
-        <div class="section-header">
-          <h3>💰 Savings Tracker</h3>
-        </div>
-        <div class="card" style="padding:var(--space-lg);">
-          <div style="text-align:center;margin-bottom:var(--space-md);">
-            <div style="font-size:0.8125rem;color:var(--text-tertiary);margin-bottom:4px;">You've saved vs Industry Average</div>
-            <div style="font-size:2rem;font-weight:900;color:var(--success);">$${savings}</div>
-            <div style="font-size:0.75rem;color:var(--text-tertiary);margin-top:4px;">Across ${stats.total_builds} build${stats.total_builds !== 1 ? 's' : ''}</div>
-          </div>
-          <div class="progress-bar" style="margin-bottom:var(--space-sm);">
-            <div class="progress-bar-fill" style="width:${savingsPercent}%;"></div>
-          </div>
-          <div style="display:flex;justify-content:space-between;font-size:0.75rem;color:var(--text-tertiary);">
-            <span>BuildCheap: $${totalBuildCheapCost}</span>
-            <span>Industry Avg: $${totalEasCost}</span>
-          </div>
-        </div>` : '';
+    < div class="section-header" >
+      <h3>💰 Savings Tracker</h3>
+        </div >
+    <div class="card" style="padding:var(--space-lg);">
+      <div style="text-align:center;margin-bottom:var(--space-md);">
+        <div style="font-size:0.8125rem;color:var(--text-tertiary);margin-bottom:4px;">You've saved vs Industry Average</div>
+        <div style="font-size:2rem;font-weight:900;color:var(--success);">$${savings}</div>
+        <div style="font-size:0.75rem;color:var(--text-tertiary);margin-top:4px;">Across ${stats.total_builds} build${stats.total_builds !== 1 ? 's' : ''}</div>
+      </div>
+      <div class="progress-bar" style="margin-bottom:var(--space-sm);">
+        <div class="progress-bar-fill" style="width:${savingsPercent}%;"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:0.75rem;color:var(--text-tertiary);">
+        <span>BuildCheap: $${totalBuildCheapCost}</span>
+        <span>Industry Avg: $${totalEasCost}</span>
+      </div>
+    </div>` : '';
 
   return `
-    <div class="page-title-bar">
+      < div class="page-title-bar" >
       <h2>Welcome back, ${user.display_name || 'Builder'} 👋</h2>
       <a href="#/projects" class="btn btn-primary">+ New Build</a>
-    </div>
-    
+    </div >
+
     ${statsHtml}
-    
-    <div class="content-grid">
-      <div>
-        <div class="section-header">
-          <h3>Recent Builds</h3>
-          <a href="#/builds" class="btn btn-ghost btn-sm">View all →</a>
-        </div>
-        <div class="build-list">
-          ${buildsHtml}
-        </div>
+
+  <div class="content-grid">
+    <div>
+      <div class="section-header">
+        <h3>Recent Builds</h3>
+        <a href="#/builds" class="btn btn-ghost btn-sm">View all →</a>
       </div>
-      
-      <div>
-        <div class="section-header">
-          <h3>Your Projects</h3>
-          <a href="#/projects" class="btn btn-ghost btn-sm">All →</a>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:var(--space-sm);margin-bottom:var(--space-xl);">
-          ${projectsHtml}
-        </div>
-        
-        ${savingsHtml}
+      <div class="build-list">
+        ${buildsHtml}
       </div>
     </div>
+
+    <div>
+      <div class="section-header">
+        <h3>Your Projects</h3>
+        <a href="#/projects" class="btn btn-ghost btn-sm">All →</a>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:var(--space-sm);margin-bottom:var(--space-xl);">
+        ${projectsHtml}
+      </div>
+
+      ${savingsHtml}
+    </div>
+  </div>
   `;
 }
 
@@ -199,9 +212,9 @@ export function renderDashboard(container) {
     pageContent.innerHTML = renderDashboardContent(data);
   }).catch(err => {
     console.error('Dashboard load failed:', err);
-    pageContent.innerHTML = `<div style="padding:var(--space-xl);text-align:center;color:var(--text-tertiary);">
+    pageContent.innerHTML = `< div style = "padding:var(--space-xl);text-align:center;color:var(--text-tertiary);" >
             <div style="font-size:2rem;margin-bottom:var(--space-sm);">⚠️</div>
             <div>Failed to load dashboard: ${err.message}</div>
-        </div>`;
+        </div > `;
   });
 }
