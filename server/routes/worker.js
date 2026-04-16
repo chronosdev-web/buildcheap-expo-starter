@@ -5,6 +5,7 @@ import fs from 'fs';
 import db, { queries } from '../db.js';
 import { decryptKey } from '../apple-api.js';
 import { getCredentials as getAppleCredentials } from '../apple-credentials.js';
+import { spawn } from 'child_process';
 
 const router = Router();
 
@@ -94,6 +95,35 @@ router.get('/jobs/next', (req, res) => {
                 status: 'building'
             }
         });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/worker/jobs/:id/source — Stream project source securely to worker
+router.get('/jobs/:id/source', (req, res) => {
+    const { id } = req.params;
+    try {
+        const build = queries.getBuildById.get(id);
+        if (!build) return res.status(404).json({ error: 'Build not found' });
+
+        const project = queries.getProjectById.get(build.project_id);
+        if (!project || !project.repo_url || !project.repo_url.startsWith('file://')) {
+            return res.status(400).json({ error: 'Source is not a local upload' });
+        }
+
+        const sourceDir = project.repo_url.replace('file://', '');
+        if (!fs.existsSync(sourceDir)) {
+            return res.status(404).json({ error: 'Source directory missing on host' });
+        }
+
+        res.setHeader('Content-Type', 'application/gzip');
+        res.setHeader('Content-Disposition', 'attachment; filename="source.tar.gz"');
+
+        // Dynamically compress source directory into stream using native tar
+        const tarProc = spawn('tar', ['-czf', '-', '-C', sourceDir, '.']);
+        tarProc.stdout.pipe(res);
+        tarProc.stderr.on('data', err => console.error(`[Tar error on job ${id}]:`, err.toString()));
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
