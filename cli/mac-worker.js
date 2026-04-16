@@ -15,7 +15,6 @@ import fs from 'fs';
 import os from 'os';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
-import FormData from 'form-data';
 import { pipeline } from 'stream/promises';
 import { Readable } from 'stream';
 
@@ -35,7 +34,6 @@ async function apiFetch(endpoint, method = 'GET', body = null, isFormData = fals
     if (body) {
         if (isFormData) {
             options.body = body;
-            options.headers = { ...options.headers, ...body.getHeaders() };
         } else {
             options.headers['Content-Type'] = 'application/json';
             options.body = JSON.stringify(body);
@@ -49,20 +47,33 @@ async function apiFetch(endpoint, method = 'GET', body = null, isFormData = fals
     return res.json();
 }
 
-async function streamLog(buildId, line) {
+const logQueue = {};
+const queueTimer = {};
+
+function streamLog(buildId, line) {
     const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
     const logLine = `[${timestamp}] ${line}`;
     console.log(`[Job ${buildId}] ${line}`);
 
-    // Fire and forget log string to server to forward to WebSocket
-    fetch(`${SERVER_URL}/api/worker/jobs/${buildId}/log`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': WORKER_API_KEY
-        },
-        body: JSON.stringify({ lines: [logLine] })
-    }).catch(() => { });
+    if (!logQueue[buildId]) logQueue[buildId] = [];
+    logQueue[buildId].push(logLine);
+
+    if (!queueTimer[buildId]) {
+        queueTimer[buildId] = setTimeout(() => {
+            const lines = logQueue[buildId];
+            delete logQueue[buildId];
+            delete queueTimer[buildId];
+
+            fetch(`${SERVER_URL}/api/worker/jobs/${buildId}/log`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': WORKER_API_KEY
+                },
+                body: JSON.stringify({ lines })
+            }).catch(() => { });
+        }, 500);
+    }
 }
 
 async function updateStatus(buildId, status, errorMessage = null, durationSeconds = 0) {
@@ -76,6 +87,7 @@ async function updateStatus(buildId, status, errorMessage = null, durationSecond
 function runCommand(cmd, args, cwd, buildId, extraEnv = {}) {
     return new Promise((resolve, reject) => {
         const nodePaths = [
+            path.dirname(process.execPath),
             '/usr/local/bin',
             '/opt/homebrew/bin',
             '/opt/homebrew/sbin',
@@ -98,7 +110,8 @@ function runCommand(cmd, args, cwd, buildId, extraEnv = {}) {
             ...extraEnv,
         };
 
-        const proc = spawn(cmd, args, { cwd, env: safeEnv, stdio: ['pipe', 'pipe', 'pipe'] });
+        // Use /usr/bin/env to force resolving the executable via safeEnv.PATH
+        const proc = spawn('/usr/bin/env', [cmd, ...args], { cwd, env: safeEnv, stdio: ['pipe', 'pipe', 'pipe'] });
         proc.stdout.on('data', data => data.toString().split('\n').filter(l => l.trim()).forEach(line => streamLog(buildId, line)));
         proc.stderr.on('data', data => data.toString().split('\n').filter(l => l.trim()).forEach(line => streamLog(buildId, line)));
         proc.on('close', code => code === 0 ? resolve() : reject(new Error(`'${cmd}' exited with code ${code}`)));
@@ -245,7 +258,7 @@ async function processJob(job) {
 
         // Step 2: Install
         streamLog(job.id, '[Remote Agent] Installing dependencies...');
-        await runCommand('npm', ['install', '--ignore-scripts'], workDir, job.id);
+        await runCommand('yarn', ['install', '--ignore-scripts'], workDir, job.id);
 
         const stripePatch = path.join(workDir, 'node_modules/@stripe/stripe-react-native/ios/StripeSwiftInterop.h');
         if (fs.existsSync(stripePatch)) {
@@ -264,7 +277,7 @@ async function processJob(job) {
             if (job.bundle_id) appJson.expo.ios.bundleIdentifier = job.bundle_id;
             fs.writeFileSync(appJsonPath, JSON.stringify(appJson, null, 2));
         }
-        await runCommand('npx', ['expo', 'prebuild', '--platform', 'ios', '--no-install'], workDir, job.id, { HOME: sandboxHome });
+        await runCommand('yarn', ['expo', 'prebuild', '--platform', 'ios', '--no-install'], workDir, job.id, { HOME: sandboxHome });
 
         // Step 4: CocoaPods
         streamLog(job.id, '[Remote Agent] Installing CocoaPods...');
@@ -315,6 +328,7 @@ async function processJob(job) {
         };
 
         let signingFlags = ['CODE_SIGNING_ALLOWED=NO'];
+        let provSetup = null;
 
         if (keys.issuerId && keys.privateKey) {
             streamLog(job.id, '[Remote Agent] Connecting to Apple & Securing Keychain...');
@@ -331,7 +345,7 @@ async function processJob(job) {
 
             let isNewKey = false;
             if (!fs.existsSync(persistentKey) || !fs.existsSync(persistentCsr)) {
-                await runCommand('openssl', ['req', '-new', '-newkey', 'rsa:2048', '-nodes', '-keyout', persistentKey, '-out', persistentCsr, '-subj', '/CN=BuildCheap Distribution/O=BuildCheap/C=US'], persistentSigningDir, job.id, { HOME: sandboxHome });
+                await runCommand('/usr/bin/openssl', ['req', '-new', '-newkey', 'rsa:2048', '-nodes', '-keyout', persistentKey, '-out', persistentCsr, '-subj', '/CN=BuildCheap Distribution/O=BuildCheap/C=US'], persistentSigningDir, job.id, { HOME: sandboxHome });
                 isNewKey = true;
             }
 
@@ -341,16 +355,16 @@ async function processJob(job) {
             const csrContent = fs.readFileSync(path.join(signingDir, 'dist.csr'), 'utf8');
 
             // Provision
-            const provSetup = await provisionSigning(token, csrContent, actualBundleId, isNewKey);
+            provSetup = await provisionSigning(token, csrContent, actualBundleId, isNewKey);
             fs.writeFileSync(path.join(signingDir, 'dist.cer'), Buffer.from(provSetup.certContent, 'base64'));
 
             // Convert to DER for importing
-            await runCommand('openssl', ['x509', '-inform', 'DER', '-in', path.join(signingDir, 'dist.cer'), '-out', path.join(signingDir, 'dist.pem')], workDir, job.id, { HOME: sandboxHome });
-            await runCommand('openssl', ['pkcs12', '-export', '-inkey', path.join(signingDir, 'dist.key'), '-in', path.join(signingDir, 'dist.pem'), '-out', path.join(signingDir, 'dist.p12'), '-passout', 'pass:buildcheap'], workDir, job.id, { HOME: sandboxHome });
+            await runCommand('/usr/bin/openssl', ['x509', '-inform', 'DER', '-in', path.join(signingDir, 'dist.cer'), '-out', path.join(signingDir, 'dist.pem')], workDir, job.id, { HOME: sandboxHome });
+            await runCommand('/usr/bin/openssl', ['pkcs12', '-export', '-inkey', path.join(signingDir, 'dist.key'), '-in', path.join(signingDir, 'dist.pem'), '-out', path.join(signingDir, 'dist.p12'), '-passout', 'pass:buildcheap'], workDir, job.id, { HOME: sandboxHome });
 
             if (!keys.teamId || keys.teamId === 'null') {
                 try {
-                    const subject = execSync(`openssl x509 -in "${path.join(signingDir, 'dist.pem')}" -noout -subject`).toString();
+                    const subject = execSync(`/usr/bin/openssl x509 -in "${path.join(signingDir, 'dist.pem')}" -noout -subject`).toString();
                     const ouMatch = subject.match(/OU\s*=\s*([A-Z0-9]{10})/);
                     if (ouMatch && ouMatch[1]) {
                         keys.teamId = ouMatch[1];
@@ -389,7 +403,23 @@ async function processJob(job) {
             }
         }
 
-        // Step 5: Archive
+        // Step 5: Pre-Archive Stamping & Archive
+        // Apple TestFlight strictly rejects identical CFBundleVersions. Expo notoriously hardcodes this to '1'.
+        // Force-stamp the unique build system job ID tightly into the Info.plist before compilation using PlistBuddy.
+        if (fs.existsSync(iosDir)) {
+            try {
+                const plists = execSync(`find "${iosDir}" -name Info.plist -not -path "*/Pods/*"`, { encoding: 'utf8' }).split('\n').filter(Boolean);
+                for (const plist of plists) {
+                    try {
+                        execSync(`/usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${job.build_number}" "${plist}"`);
+                        streamLog(job.id, `[Remote Agent] Auto-stamped CFBundleVersion=${job.build_number} securely into ${path.basename(path.dirname(plist))}/Info.plist`);
+                    } catch (err) {
+                        try { execSync(`/usr/libexec/PlistBuddy -c "Add :CFBundleVersion string ${job.build_number}" "${plist}"`); } catch (e) { }
+                    }
+                }
+            } catch (err) { }
+        }
+
         streamLog(job.id, '[Remote Agent] Compiling iOS framework (this may take 5-15 mins)...');
         await runCommand('xcodebuild', ['-workspace', workspace, '-scheme', scheme, '-configuration', 'Release', '-sdk', 'iphoneos', '-destination', 'generic/platform=iOS', '-archivePath', archivePath, `CURRENT_PROJECT_VERSION=${job.build_number}`, 'archive', ...signingFlags], iosDir, job.id);
 
@@ -405,10 +435,18 @@ async function processJob(job) {
                 if (match) keys.teamId = match[1];
             }
 
+            let provProfilesXml = '';
+            if (provSetup && provSetup.profileUUID) {
+                provProfilesXml = `<key>provisioningProfiles</key><dict><key>${actualBundleId}</key><string>${provSetup.profileUUID}</string></dict>`;
+                streamLog(job.id, `[Remote Agent] Exporting using Profile UUID: ${actualBundleId} -> ${provSetup.profileUUID}`);
+            } else {
+                streamLog(job.id, `[Remote Agent] WARNING: Missing provSetup or profileUUID. Export will likely fail!`);
+            }
+
             const plistContent = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<dict><key>method</key><string>app-store-connect</string><key>teamID</key><string>${keys.teamId}</string><key>uploadBitcode</key><false/><key>uploadSymbols</key><true/><key>signingStyle</key><string>manual</string><key>signingCertificate</key><string>iPhone Distribution</string></dict>
+<dict><key>method</key><string>app-store-connect</string><key>teamID</key><string>${keys.teamId}</string><key>uploadBitcode</key><false/><key>uploadSymbols</key><true/><key>signingStyle</key><string>manual</string><key>signingCertificate</key><string>iPhone Distribution</string>${provProfilesXml}</dict>
 </plist>`;
             fs.writeFileSync(path.join(workDir, 'build', 'ExportOptions.plist'), plistContent);
 
@@ -418,9 +456,12 @@ async function processJob(job) {
 
             // Upload to BuildCheap
             streamLog(job.id, '[Remote Agent] Uploading .ipa back to dashboard...');
-            const formData = new FormData();
-            formData.append('artifact', fs.createReadStream(ipaPath));
-            await apiFetch(`/api/worker/jobs/${job.id}/artifact`, 'POST', formData, true);
+            try {
+                execSync(`curl -sS -X POST -H 'x-api-key: ${WORKER_API_KEY}' -F "artifact=@${ipaPath}" ${SERVER_URL}/api/worker/jobs/${job.id}/artifact`);
+                streamLog(job.id, '✓ Successfully uploaded .ipa to dashboard via cURL!');
+            } catch (err) {
+                throw new Error(`cURL IPA upload failed: ${err.message}`);
+            }
 
             // Submit to Apple
             await uploadIpaToAsc(ipaPath, workDir, job.id, keys);
