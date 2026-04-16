@@ -26,25 +26,45 @@ const ASC_BASE = 'https://api.appstoreconnect.apple.com/v1';
 // Ensure sandbox directory exists
 if (!fs.existsSync(ARTIFACTS_DIR)) fs.mkdirSync(ARTIFACTS_DIR, { recursive: true });
 
-async function apiFetch(endpoint, method = 'GET', body = null, isFormData = false) {
-    const options = {
-        method,
-        headers: { 'x-api-key': WORKER_API_KEY }
-    };
-    if (body) {
-        if (isFormData) {
-            options.body = body;
-        } else {
-            options.headers['Content-Type'] = 'application/json';
-            options.body = JSON.stringify(body);
+async function withRetry(operationName, fn, maxRetries = 3) {
+    let attempt = 0;
+    while (attempt < maxRetries) {
+        try {
+            return await fn();
+        } catch (error) {
+            attempt++;
+            if (attempt >= maxRetries) {
+                console.error(`[Retry] ${operationName} failed permanently after ${maxRetries} attempts: ${error.message}`);
+                throw error;
+            }
+            const delay = 1000 * Math.pow(2, attempt);
+            console.warn(`[Retry] ${operationName} failed (Attempt ${attempt}/${maxRetries}). Retrying in ${delay / 1000}s... Error: ${error.message}`);
+            await new Promise(r => setTimeout(r, delay));
         }
     }
-    const res = await fetch(`${SERVER_URL}${endpoint}`, options);
-    if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`API Error ${res.status}: ${text}`);
-    }
-    return res.json();
+}
+
+async function apiFetch(endpoint, method = 'GET', body = null, isFormData = false) {
+    return withRetry(`apiFetch ${method} ${endpoint}`, async () => {
+        const options = {
+            method,
+            headers: { 'x-api-key': WORKER_API_KEY }
+        };
+        if (body) {
+            if (isFormData) {
+                options.body = body;
+            } else {
+                options.headers['Content-Type'] = 'application/json';
+                options.body = JSON.stringify(body);
+            }
+        }
+        const res = await fetch(`${SERVER_URL}${endpoint}`, options);
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`API Error ${res.status}: ${text}`);
+        }
+        return res.json();
+    });
 }
 
 const logQueue = {};
@@ -138,14 +158,16 @@ function generateASCToken(keys) {
 }
 
 async function ascFetch(endpoint, token, options = {}) {
-    const url = endpoint.startsWith('http') ? endpoint : `${ASC_BASE}${endpoint}`;
-    const res = await fetch(url, {
-        ...options,
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', ...options.headers }
+    return withRetry(`ascFetch ${endpoint}`, async () => {
+        const url = endpoint.startsWith('http') ? endpoint : `${ASC_BASE}${endpoint}`;
+        const res = await fetch(url, {
+            ...options,
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', ...options.headers }
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.errors?.[0]?.detail || `Apple API error ${res.status}`);
+        return data;
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.errors?.[0]?.detail || `Apple API error ${res.status}`);
-    return data;
 }
 
 async function provisionSigning(token, csrContent, bundleId, isNewKey = false) {
@@ -202,13 +224,15 @@ async function uploadIpaToAsc(ipaPath, workDir, buildId, keys) {
     const p8Path = path.join(ascKeysDir, `AuthKey_${keys.keyId}.p8`);
     fs.writeFileSync(p8Path, keys.privateKey);
 
-    await runCommand('xcrun', [
-        'altool', '--upload-app',
-        '-f', ipaPath,
-        '-t', 'ios',
-        '--apiKey', keys.keyId,
-        '--apiIssuer', keys.issuerId
-    ], workDir, buildId);
+    await withRetry('App Store Connect Transporter Upload', async () => {
+        await runCommand('xcrun', [
+            'altool', '--upload-app',
+            '-f', ipaPath,
+            '-t', 'ios',
+            '--apiKey', keys.keyId,
+            '--apiIssuer', keys.issuerId
+        ], workDir, buildId);
+    }, 4);
 
     streamLog(buildId, '✓ Uploaded to App Store Connect successfully!');
 }
@@ -457,7 +481,9 @@ async function processJob(job) {
             // Upload to BuildCheap
             streamLog(job.id, '[Remote Agent] Uploading .ipa back to dashboard...');
             try {
-                execSync(`curl -sS -X POST -H 'x-api-key: ${WORKER_API_KEY}' -F "artifact=@${ipaPath}" ${SERVER_URL}/api/worker/jobs/${job.id}/artifact`);
+                await withRetry('IPA Dashboard Upload', async () => {
+                    execSync(`curl -sS -X POST -H 'x-api-key: ${WORKER_API_KEY}' -F "artifact=@${ipaPath}" ${SERVER_URL}/api/worker/jobs/${job.id}/artifact`);
+                });
                 streamLog(job.id, '✓ Successfully uploaded .ipa to dashboard via cURL!');
             } catch (err) {
                 throw new Error(`cURL IPA upload failed: ${err.message}`);
@@ -475,8 +501,11 @@ async function processJob(job) {
         streamLog(job.id, `❌ Build failed: ${err.message}`);
         await updateStatus(job.id, 'error', err.message, Math.round((Date.now() - startTime) / 1000));
     } finally {
-        // Cleanup Sandbox
+        // Aggressive Sandbox Cleanup
+        streamLog(job.id, '[Remote Agent] Executing aggressive sandbox wipe...');
         try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (_) { }
+        try { execSync(`rm -rf "/Users/${process.env.USER || 'administrator'}/Library/Developer/Xcode/DerivedData/*"`); } catch (_) { }
+        try { execSync(`security delete-keychain "build.keychain-db"`); } catch (_) { }
     }
 }
 
