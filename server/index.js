@@ -49,13 +49,12 @@ function broadcast(event) {
             });
         }
     } else if (event.type === 'build_complete' || event.type === 'build_started') {
-        const listeners = buildLogListeners.get(event.data.buildId);
-        if (listeners) {
-            const payload = JSON.stringify(event);
-            listeners.forEach(ws => {
-                if (ws.readyState === 1) ws.send(payload);
-            });
-        }
+        // Broadcast status changes to ALL connected clients so the builds list updates
+        // regardless of which build's logs the user is viewing
+        const payload = JSON.stringify(event);
+        wss.clients.forEach(ws => {
+            if (ws.readyState === 1) ws.send(payload);
+        });
     }
 }
 app.set('wsBroadcast', broadcast);

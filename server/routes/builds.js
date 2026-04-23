@@ -1,6 +1,6 @@
 // BuildCheap — Build Routes (using worker IPC)
 import { Router } from 'express';
-import { queries, deductCreditAndCreateBuild } from '../db.js';
+import db, { queries, deductCreditAndCreateBuild, refundBuildCredit } from '../db.js';
 import crypto from 'crypto';
 
 const router = Router();
@@ -66,6 +66,24 @@ router.post('/', (req, res) => {
 router.get('/', (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const offset = parseInt(req.query.offset) || 0;
+
+    // Auto-recover stale builds: if 'building' for 60+ minutes, mark done
+    const staleBuilds = db.prepare(
+        `SELECT id, artifact_url FROM builds
+         WHERE user_id = ? AND status = 'building'
+         AND started_at < datetime('now', '-60 minutes')`
+    ).all(req.user.id);
+
+    for (const stale of staleBuilds) {
+        const finalStatus = stale.artifact_url ? 'success' : 'error';
+        const errorMsg = stale.artifact_url
+            ? null
+            : 'Build timed out — worker may have disconnected';
+        db.prepare(
+            `UPDATE builds SET status = ?, completed_at = datetime('now'), error_message = COALESCE(error_message, ?) WHERE id = ?`
+        ).run(finalStatus, errorMsg, stale.id);
+    }
+
     const builds = queries.getBuildsByUser.all(req.user.id, limit, offset);
     res.json({ builds });
 });
@@ -97,6 +115,32 @@ router.get('/:id/log', (req, res) => {
         logStr = '... [Log truncated to last 50,000 characters for browser performance] ...\n\n' + logStr.slice(-50000);
     }
     res.json({ log: logStr });
+});
+
+// POST /api/builds/:id/cancel — cancel a queued/active build and refund
+router.post('/:id/cancel', (req, res) => {
+    try {
+        const build = queries.getBuildById.get(req.params.id);
+        if (!build || build.user_id !== req.user.id) {
+            return res.status(404).json({ error: 'Build not found' });
+        }
+        if (build.status !== 'queued' && build.status !== 'building') {
+            return res.status(400).json({ error: 'Cannot cancel a build that is already completed or failed' });
+        }
+
+        queries.updateBuildStatus.run(
+            'cancelled', build.started_at, new Date().toISOString(),
+            build.duration_seconds, build.artifact_url, build.artifact_size,
+            (build.log || '') + '\n[System] Build cancelled by user.\n',
+            'Cancelled by user', build.id
+        );
+
+        refundBuildCredit(req.user.id, build.id, build.cost || parseFloat(process.env.COST_PER_BUILD || '0.50'));
+
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 export default router;

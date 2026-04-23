@@ -1,6 +1,6 @@
 // Builds page — fully dynamic, live WebSocket logs
 import { createDashboardLayout } from '../components/layout.js';
-import { builds, connectBuildLogs } from '../api.js';
+import { builds, connectBuildLogs, getToken } from '../api.js';
 
 function formatDuration(seconds) {
   if (!seconds) return '—';
@@ -261,10 +261,38 @@ export function renderBuilds(container) {
     switchLogStream(id);
   };
 
+  // Global WebSocket for build status events (independent of log stream)
+  const globalWsUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
+  let globalWs = null;
+
+  function connectGlobalWs() {
+    globalWs = new WebSocket(globalWsUrl);
+    globalWs.onopen = () => {
+      const token = getToken();
+      if (token) globalWs.send(JSON.stringify({ type: 'auth', token }));
+    };
+    globalWs.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'build_complete' || msg.type === 'build_started') {
+          loadBuilds(true);
+        }
+      } catch { }
+    };
+    globalWs.onclose = () => {
+      // Reconnect after 3s if page is still mounted
+      if (document.body.contains(layout)) {
+        setTimeout(connectGlobalWs, 3000);
+      }
+    };
+  }
+  connectGlobalWs();
+
   const pollInterval = setInterval(() => {
     if (!document.body.contains(layout)) {
       clearInterval(pollInterval);
       if (activeWs) activeWs.close();
+      if (globalWs) globalWs.close();
       return;
     }
     loadBuilds(true); // Pass true to silently poll sidebar only
