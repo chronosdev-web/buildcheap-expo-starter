@@ -143,6 +143,6 @@ export async function login(email, password) {
 }
 
 function sanitizeUser(user) {
-    const { password_hash, ...safe } = user;
-    return safe;
+    const { password_hash, github_token, ...safe } = user;
+    return { ...safe, has_github_token: !!github_token };
 }
