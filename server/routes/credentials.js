@@ -22,6 +22,16 @@ router.post('/github', (req, res) => {
     }
 });
 
+// DELETE /api/credentials/github — remove GitHub token
+router.delete('/github', (req, res) => {
+    try {
+        queries.updateUserGithubToken.run(null, req.user.id);
+        res.json({ message: 'GitHub Access Token removed' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // POST /api/credentials/apple — save App Store Connect API Key
 router.post('/apple', async (req, res) => {
     try {

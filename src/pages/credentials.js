@@ -273,7 +273,7 @@ export function renderCredentials(container) {
           if (confirm('Are you sure you want to disconnect your GitHub Token? Background clones of private repositories will immediately fail.')) {
             delBtn.disabled = true;
             try {
-              await credentials.github.save(''); // Send empty string to clear
+              await credentials.github.delete();
               store.set('user', { ...user, has_github_token: false });
               loadCredentials();
             } catch (err) {

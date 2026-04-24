@@ -155,6 +155,7 @@ export const projects = {
 export const builds = {
     trigger: (project_id, platform, commit_hash, commit_message) =>
         apiFetch('/builds', { method: 'POST', body: JSON.stringify({ project_id, platform, commit_hash, commit_message }) }),
+    cancel: (id) => apiFetch(`/builds/${id}/cancel`, { method: 'POST' }),
     list: async (limit = 20, offset = 0) => {
         const data = await apiFetch(`/builds?limit=${limit}&offset=${offset}&t=${Date.now()}`);
         store.set('builds', data.builds);
@@ -212,6 +213,7 @@ export const credentials = {
     },
     github: {
         save: (token) => apiFetch('/credentials/github', { method: 'POST', body: JSON.stringify({ token }) }),
+        delete: () => apiFetch('/credentials/github', { method: 'DELETE' }),
     }
 };
 
