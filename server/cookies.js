@@ -11,10 +11,21 @@ export function setAuthCookie(res, token) {
 }
 
 export function clearAuthCookie(res) {
+    // Attempt deletion with current settings
     res.clearCookie('bc_auth', {
         httpOnly: true,
         secure: IS_PROD,
         sameSite: 'lax',
         path: '/'
     });
+    // Attempt deletion backwards-compatible with older cookies
+    // (Browsers require exact attribute matches to overwrite/delete cookies)
+    if (IS_PROD) {
+        res.clearCookie('bc_auth', {
+            httpOnly: true,
+            secure: true,
+            sameSite: 'none',
+            path: '/'
+        });
+    }
 }
