@@ -790,8 +790,7 @@
         </div>
       </div>
         </div>
-        <div id="githubTestResult" style="margin-top:var(--space-md);font-size:0.875rem;"></div>
-      </div>
+        <div id="testResult" style="margin-top:var(--space-md);font-size:0.875rem;"></div>
     `:`
         <div class="page-title-bar">
           <h2>Apple Credentials</h2>
