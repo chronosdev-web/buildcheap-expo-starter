@@ -43,7 +43,18 @@ const routes = {
     '/support': requireAuth((container) => renderSupport(container)),
 };
 
-// Try to restore auth session from cookie on load
-initAuth().then(() => {
+async function startApp() {
+    // Enforce tab-scoped session: if this is a new tab, clear the global auth cookie.
+    if (!sessionStorage.getItem('tab_session_active')) {
+        sessionStorage.setItem('tab_session_active', '1');
+        try {
+            await fetch('/api/auth/logout', { method: 'POST' });
+        } catch (e) {}
+        store.update({ user: null, token: null, isAuthenticated: false });
+    } else {
+        await initAuth();
+    }
     new Router(routes, app);
-});
+}
+
+startApp();

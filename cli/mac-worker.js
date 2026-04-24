@@ -282,7 +282,7 @@ async function processJob(job) {
 
         // Step 2: Install
         streamLog(job.id, '[Remote Agent] Installing dependencies...');
-        await runCommand('yarn', ['install', '--ignore-scripts'], workDir, job.id);
+        await runCommand('yarn', ['install'], workDir, job.id);
 
         const stripePatch = path.join(workDir, 'node_modules/@stripe/stripe-react-native/ios/StripeSwiftInterop.h');
         if (fs.existsSync(stripePatch)) {

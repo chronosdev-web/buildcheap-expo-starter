@@ -78,7 +78,11 @@ export const auth = {
     },
 
     logout: async () => {
-        await apiFetch('/auth/logout', { method: 'POST' });
+        try {
+            await apiFetch('/auth/logout', { method: 'POST' });
+        } catch (e) {
+            console.error('Logout API failed:', e);
+        }
         clearAuthState();
         window.location.hash = '#/login';
     },
