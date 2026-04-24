@@ -137,7 +137,8 @@ export function renderCredentials(container) {
     } else {
       const delBtn = pageContent.querySelector('#deleteCredsBtn');
       if (delBtn) {
-        delBtn.addEventListener('click', async () => {
+        delBtn.addEventListener('click', async (e) => {
+          e.preventDefault();
           if (confirm('Are you sure you want to disconnect your Apple API Key? Your builds will fail until you reconnect!')) {
             delBtn.disabled = true;
             try {
@@ -268,12 +269,13 @@ export function renderCredentials(container) {
     } else {
       const delBtn = pageContent.querySelector('#deleteGithubBtn');
       if (delBtn) {
-        delBtn.addEventListener('click', async () => {
+        delBtn.addEventListener('click', async (e) => {
+          e.preventDefault();
           if (confirm('Are you sure you want to disconnect your GitHub Token? Background clones of private repositories will immediately fail.')) {
             delBtn.disabled = true;
             try {
               await credentials.github.delete();
-              store.set('user', { ...user, has_github_token: false });
+              await auth.me(); // Refresh auth state directly from server
               loadCredentials();
             } catch (err) {
               alert('Failed to delete GitHub token: ' + err.message);

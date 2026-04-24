@@ -127,14 +127,14 @@ function renderDashboardContent(data) {
   // Projects sidebar
   let projectsHtml;
   if (projects.length === 0) {
-    projectsHtml = `< div class="card" style = "padding:var(--space-lg);text-align:center;color:var(--text-tertiary);" >
+    projectsHtml = `<div class="card" style="padding:var(--space-lg);text-align:center;color:var(--text-tertiary);">
           <div style="font-size:1.5rem;margin-bottom:var(--space-xs);">📦</div>
           <div>No projects yet</div>
           <a href="#/projects" class="btn btn-primary btn-sm" style="margin-top:var(--space-sm);">Create Project</a>
-        </div > `;
+        </div>`;
   } else {
     projectsHtml = projects.map(p => `
-    < div class="card" style = "padding:var(--space-md);cursor:pointer;" onclick = "location.hash='#/projects'" >
+    <div class="card" style="padding:var(--space-md);cursor:pointer;" onclick="location.hash='#/projects'">
       <div style="display:flex;align-items:center;gap:var(--space-sm);">
         <div class="project-icon both" style="width:32px;height:32px;font-size:0.9rem;">📱</div>
         <div>
@@ -143,14 +143,14 @@ function renderDashboardContent(data) {
         </div>
         ${projectStatusBadge(p, recent_builds)}
       </div>
-          </div > `).join('');
+    </div>`).join('');
   }
 
   // Savings tracker
   const savingsHtml = stats.total_builds > 0 ? `
-    < div class="section-header" >
+    <div class="section-header">
       <h3>💰 Savings Tracker</h3>
-        </div >
+    </div>
     <div class="card" style="padding:var(--space-lg);">
       <div style="text-align:center;margin-bottom:var(--space-md);">
         <div style="font-size:0.8125rem;color:var(--text-tertiary);margin-bottom:4px;">You've saved vs Industry Average</div>
@@ -167,10 +167,10 @@ function renderDashboardContent(data) {
     </div>` : '';
 
   return `
-      < div class="page-title-bar" >
+    <div class="page-title-bar">
       <h2>Welcome back, ${user.display_name || 'Builder'} 👋</h2>
       <a href="#/projects" class="btn btn-primary">+ New Build</a>
-    </div >
+    </div>
 
     ${statsHtml}
 
@@ -212,9 +212,9 @@ export function renderDashboard(container) {
     pageContent.innerHTML = renderDashboardContent(data);
   }).catch(err => {
     console.error('Dashboard load failed:', err);
-    pageContent.innerHTML = `< div style = "padding:var(--space-xl);text-align:center;color:var(--text-tertiary);" >
+    pageContent.innerHTML = `<div style="padding:var(--space-xl);text-align:center;color:var(--text-tertiary);">
             <div style="font-size:2rem;margin-bottom:var(--space-sm);">⚠️</div>
             <div>Failed to load dashboard: ${err.message}</div>
-        </div > `;
+        </div>`;
   });
 }

@@ -364,7 +364,7 @@ export function renderSettings(container) {
       }
 
       orgListContainer.innerHTML = data.organizations.map(org => `
-          < div class="card" style = "padding:var(--space-lg);margin-bottom:var(--space-md);" >
+          <div class="card" style="padding:var(--space-lg);margin-bottom:var(--space-md);">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-md);">
             <div>
               <div style="font-weight:700;font-size:1.1rem;">${org.name}</div>
@@ -376,7 +376,7 @@ export function renderSettings(container) {
             </div>
           </div>
           <div id="members-${org.id}" style="display:none;"></div>
-        </div >
+        </div>
           `).join('');
 
       // View members
@@ -462,7 +462,7 @@ export function renderSettings(container) {
               });
             });
           } catch (err) {
-            container.innerHTML = `< div style = "color:var(--error);" > ${err.message}</div > `;
+            container.innerHTML = `<div style="color:var(--error);">${err.message}</div>`;
           }
         });
       });
@@ -478,7 +478,7 @@ export function renderSettings(container) {
         });
       });
     } catch (err) {
-      orgListContainer.innerHTML = `< div style = "color:var(--error);padding:var(--space-md);" > ${err.message}</div > `;
+      orgListContainer.innerHTML = `<div style="color:var(--error);padding:var(--space-md);">${err.message}</div>`;
     }
   }
 
@@ -514,13 +514,13 @@ export function renderSettings(container) {
       }
 
       webhooksListContainer.innerHTML = data.webhooks.map(wh => `
-          < div class="card" style = "padding:var(--space-md);display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-sm);" >
+          <div class="card" style="padding:var(--space-md);display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-sm);">
           <div>
             <div style="font-weight:500;">${wh.url}</div>
             <div style="font-size:0.75rem;color:var(--text-tertiary);">Added ${new Date(wh.created_at).toLocaleDateString()}</div>
           </div>
           <button class="btn btn-ghost delete-webhook-btn" style="color:var(--error);" data-id="${wh.id}">Remove</button>
-        </div >
+        </div>
           `).join('');
 
       layout.querySelectorAll('.delete-webhook-btn').forEach(btn => {
@@ -538,7 +538,7 @@ export function renderSettings(container) {
         });
       });
     } catch (err) {
-      webhooksListContainer.innerHTML = `< div style = "color:var(--error);padding:var(--space-md);" > ${err.message}</div > `;
+      webhooksListContainer.innerHTML = `<div style="color:var(--error);padding:var(--space-md);">${err.message}</div>`;
     }
   }
 

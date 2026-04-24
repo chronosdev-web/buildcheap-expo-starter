@@ -80,10 +80,11 @@ export const auth = {
     logout: async () => {
         await apiFetch('/auth/logout', { method: 'POST' });
         clearAuthState();
+        window.location.hash = '#/login';
     },
 
     me: async () => {
-        const data = await apiFetch('/auth/me');
+        const data = await apiFetch(`/auth/me?t=${Date.now()}`);
         store.update({
             user: data.user,
             token: data.token,

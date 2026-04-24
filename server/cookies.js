@@ -6,11 +6,15 @@ export function setAuthCookie(res, token) {
         httpOnly: true,
         secure: IS_PROD,
         sameSite: 'lax',
-        maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
         path: '/',
     });
 }
 
 export function clearAuthCookie(res) {
-    res.clearCookie('bc_auth', { path: '/' });
+    res.clearCookie('bc_auth', {
+        httpOnly: true,
+        secure: IS_PROD,
+        sameSite: 'lax',
+        path: '/'
+    });
 }
