@@ -116,13 +116,31 @@ export function createDashboardLayout(activePage, pageContent) {
   });
 
   // Logout trigger
-  layout.querySelector('#logoutBtn')?.addEventListener('click', async () => {
-    if (confirm('Are you sure you want to log out?')) {
-      try {
-        await auth.logout();
-      } catch (err) {
-        console.error('Logout failed:', err);
-      }
+  let logoutTimeout;
+  const logoutBtn = layout.querySelector('#logoutBtn');
+  logoutBtn?.addEventListener('click', async () => {
+    const emailDiv = logoutBtn.querySelector('.sidebar-user-email');
+    if (emailDiv && emailDiv.innerText !== 'Are you sure?') {
+      const originalText = emailDiv.innerText;
+      emailDiv.innerText = 'Are you sure?';
+      emailDiv.style.color = 'var(--error)';
+      
+      logoutTimeout = setTimeout(() => {
+        if (emailDiv) {
+          emailDiv.innerText = originalText;
+          emailDiv.style.color = '';
+        }
+      }, 3000);
+      return;
+    }
+
+    clearTimeout(logoutTimeout);
+    if (emailDiv) emailDiv.innerText = 'Logging out...';
+    try {
+      await auth.logout();
+    } catch (err) {
+      console.error('Logout failed:', err);
+      if (emailDiv) emailDiv.innerText = 'Logout';
     }
   });
 

@@ -209,6 +209,19 @@ export function renderBuilds(container) {
         logOutput.appendChild(div);
       });
       wsBuffer = [];
+
+      // Check if the very last line is altool, and we are still building
+      const fullLog = logOutput.textContent;
+      if (fullLog.includes('altool') && !fullLog.includes('successful') && !fullLog.includes('failed')) {
+        const indicator = document.createElement('div');
+        indicator.id = 'altoolIndicator';
+        indicator.style.color = 'var(--warning)';
+        indicator.style.marginTop = 'var(--space-md)';
+        indicator.style.animation = 'pulse 2s infinite';
+        indicator.textContent = '⏳ Uploading to Apple App Store Connect... Please wait, this process takes 5-15 minutes and produces no logs until finished.';
+        logOutput.appendChild(indicator);
+      }
+
       logOutput.scrollTop = logOutput.scrollHeight;
 
     }).catch(() => {
@@ -225,11 +238,27 @@ export function renderBuilds(container) {
         return;
       }
 
+      // Remove any existing "Please wait" indicator before adding new lines
+      const existingIndicator = logOutput.querySelector('#altoolIndicator');
+      if (existingIndicator) existingIndicator.remove();
+
       const div = document.createElement('div');
       if (line.includes('✓')) div.style.color = 'var(--success)';
       if (line.includes('Error:') || line.includes('FAILED')) div.style.color = 'var(--error)';
       div.textContent = line;
       logOutput.appendChild(div);
+
+      // If altool is running, append a pulsing indicator at the bottom
+      if (line.includes('altool') && !line.includes('successful') && !line.includes('error')) {
+        const indicator = document.createElement('div');
+        indicator.id = 'altoolIndicator';
+        indicator.style.color = 'var(--warning)';
+        indicator.style.marginTop = 'var(--space-md)';
+        indicator.style.animation = 'pulse 2s infinite';
+        indicator.textContent = '⏳ Uploading to Apple App Store Connect... Please wait, this process takes 5-15 minutes and produces no logs until finished.';
+        logOutput.appendChild(indicator);
+      }
+
       logOutput.scrollTop = logOutput.scrollHeight;
     });
 

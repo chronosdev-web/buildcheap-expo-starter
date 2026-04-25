@@ -137,17 +137,39 @@ export function renderCredentials(container) {
     } else {
       const delBtn = pageContent.querySelector('#deleteCredsBtn');
       if (delBtn) {
+        let confirmTimeout;
         delBtn.addEventListener('click', async (e) => {
           e.preventDefault();
-          if (confirm('Are you sure you want to disconnect your Apple API Key? Your builds will fail until you reconnect!')) {
-            delBtn.disabled = true;
-            try {
-              await credentials.apple.delete();
-              loadCredentials();
-            } catch (err) {
-              alert('Failed to delete credentials: ' + err.message);
-              delBtn.disabled = false;
-            }
+          if (delBtn.innerText !== 'Are you sure?') {
+            delBtn.innerText = 'Are you sure?';
+            delBtn.classList.remove('btn-ghost');
+            delBtn.classList.add('btn-primary');
+            delBtn.style.backgroundColor = 'var(--error)';
+            delBtn.style.borderColor = 'var(--error)';
+            delBtn.style.color = '#fff';
+            confirmTimeout = setTimeout(() => {
+              if (delBtn) {
+                delBtn.innerText = 'Disconnect';
+                delBtn.classList.add('btn-ghost');
+                delBtn.classList.remove('btn-primary');
+                delBtn.style.backgroundColor = '';
+                delBtn.style.borderColor = '';
+                delBtn.style.color = 'var(--error)';
+              }
+            }, 3000);
+            return;
+          }
+
+          clearTimeout(confirmTimeout);
+          delBtn.disabled = true;
+          delBtn.innerText = 'Disconnecting...';
+          try {
+            await credentials.apple.delete();
+            loadCredentials();
+          } catch (err) {
+            alert('Failed to delete credentials: ' + err.message);
+            delBtn.disabled = false;
+            delBtn.innerText = 'Disconnect';
           }
         });
       }
@@ -253,9 +275,11 @@ export function renderCredentials(container) {
           btn.disabled = true;
           btn.innerText = 'Saving...';
           errDiv.style.display = 'none';
+          console.log("SAVE BUTTON CLICKED");
 
           try {
             await credentials.github.save(input.value.trim());
+            console.log("SAVE SUCCESS");
             store.set('user', { ...user, has_github_token: true });
             loadCredentials();
           } catch (err) {
@@ -269,18 +293,40 @@ export function renderCredentials(container) {
     } else {
       const delBtn = pageContent.querySelector('#deleteGithubBtn');
       if (delBtn) {
+        let confirmTimeout;
         delBtn.addEventListener('click', async (e) => {
           e.preventDefault();
-          if (confirm('Are you sure you want to disconnect your GitHub Token? Background clones of private repositories will immediately fail.')) {
-            delBtn.disabled = true;
-            try {
-              await credentials.github.delete();
-              await auth.me(); // Refresh auth state directly from server
-              loadCredentials();
-            } catch (err) {
-              alert('Failed to delete GitHub token: ' + err.message);
-              delBtn.disabled = false;
-            }
+          if (delBtn.innerText !== 'Are you sure?') {
+            delBtn.innerText = 'Are you sure?';
+            delBtn.classList.remove('btn-ghost');
+            delBtn.classList.add('btn-primary');
+            delBtn.style.backgroundColor = 'var(--error)';
+            delBtn.style.borderColor = 'var(--error)';
+            delBtn.style.color = '#fff';
+            confirmTimeout = setTimeout(() => {
+              if (delBtn) {
+                delBtn.innerText = 'Disconnect';
+                delBtn.classList.add('btn-ghost');
+                delBtn.classList.remove('btn-primary');
+                delBtn.style.backgroundColor = '';
+                delBtn.style.borderColor = '';
+                delBtn.style.color = 'var(--error)';
+              }
+            }, 3000);
+            return;
+          }
+
+          clearTimeout(confirmTimeout);
+          delBtn.disabled = true;
+          delBtn.innerText = 'Disconnecting...';
+          try {
+            await credentials.github.delete();
+            await auth.me(); // Refresh auth state directly from server
+            loadCredentials();
+          } catch (err) {
+            alert('Failed to delete GitHub token: ' + err.message);
+            delBtn.disabled = false;
+            delBtn.innerText = 'Disconnect';
           }
         });
       }
