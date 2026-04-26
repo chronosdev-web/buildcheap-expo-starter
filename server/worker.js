@@ -416,6 +416,9 @@ async function buildIOS(build, workDir) {
     // Step 3a: Prebuild native iOS project
     emitLog(buildId, `[BuildCheap] Injecting Build Number (${build.build_number}) into Expo manifest...`);
     const appJsonPath = path.join(workDir, 'app.json');
+    const appConfigJsPath = path.join(workDir, 'app.config.js');
+    const appConfigTsPath = path.join(workDir, 'app.config.ts');
+
     if (fs.existsSync(appJsonPath)) {
         try {
             let appJson = JSON.parse(fs.readFileSync(appJsonPath, 'utf8'));
@@ -439,6 +442,22 @@ async function buildIOS(build, workDir) {
         } catch (e) {
             emitLog(buildId, `⚠ Failed to inject configuration into app.json: ${e.message}`);
         }
+    } else if (fs.existsSync(appConfigJsPath) || fs.existsSync(appConfigTsPath)) {
+        // Dynamic app.config.js/ts — Expo merges app.json into dynamic config when both exist.
+        // Create a companion app.json with build number/bundle ID overrides.
+        emitLog(buildId, '[BuildCheap] Detected dynamic config (app.config.js). Generating companion app.json with build overrides...');
+        const overrides = {
+            expo: {
+                ios: { buildNumber: build.build_number.toString() },
+                android: { versionCode: build.build_number }
+            }
+        };
+        if (build.bundle_id) {
+            emitLog(buildId, `[BuildCheap] Injecting dashboard Bundle ID (${build.bundle_id}) into companion app.json...`);
+            overrides.expo.ios.bundleIdentifier = build.bundle_id;
+            overrides.expo.android.package = build.bundle_id;
+        }
+        fs.writeFileSync(appJsonPath, JSON.stringify(overrides, null, 2));
     }
 
     emitLog(buildId, '[BuildCheap] Running expo prebuild...');

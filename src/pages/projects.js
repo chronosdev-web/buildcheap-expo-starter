@@ -183,6 +183,8 @@ export function renderProjects(container) {
         const projName = btnEl.getAttribute('data-name');
         const projBundle = btnEl.getAttribute('data-bundle') || '';
         const projRepo = btnEl.getAttribute('data-repo') || '';
+        const isUploadedSource = projRepo.startsWith('file://');
+        const displayRepo = isUploadedSource ? '' : projRepo;
 
         const modalHtml = `
           <div id="editModalOverlay" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);backdrop-filter:blur(4px);z-index:9999;display:flex;align-items:center;justify-content:center;">
@@ -198,8 +200,17 @@ export function renderProjects(container) {
                 <input type="text" id="editProjBundle" class="input" value="${projBundle}" placeholder="com.company.app" />
               </div>
               <div class="input-group" style="margin-bottom:var(--space-md);">
-                <label>Repository URL / Source</label>
-                <input type="text" id="editProjRepo" class="input" value="${projRepo}" />
+                <label>Source Code</label>
+                ${isUploadedSource ? `
+                  <div style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:var(--space-sm);">
+                    <span style="background:rgba(34,197,94,0.15);color:var(--success);padding:4px 10px;border-radius:var(--radius-sm);font-size:0.78rem;font-weight:600;">📤 Uploaded via file</span>
+                    <span style="font-size:0.78rem;color:var(--text-tertiary);">Source is stored on the build server</span>
+                  </div>
+                  <input type="text" id="editProjRepo" class="input" value="" placeholder="https://github.com/your-org/your-app (optional — replaces uploaded source)" />
+                  <div style="font-size:0.75rem;color:var(--text-tertiary);margin-top:4px;">Leave blank to keep using the uploaded source. Enter a GitHub URL to switch to Git-based builds.</div>
+                ` : `
+                  <input type="text" id="editProjRepo" class="input" value="${displayRepo}" placeholder="https://github.com/your-org/your-app" />
+                `}
               </div>
               
               <div id="editModalError" style="color:var(--error);font-size:0.875rem;display:none;margin-bottom:var(--space-sm);"></div>
@@ -224,11 +235,13 @@ export function renderProjects(container) {
           saveBtn.disabled = true;
           errDiv.style.display = 'none';
 
+          const newRepo = document.getElementById('editProjRepo').value.trim();
+
           try {
             await projects.update(projectId, {
               name: document.getElementById('editProjName').value.trim(),
               bundle_id: document.getElementById('editProjBundle').value.trim(),
-              repo_url: document.getElementById('editProjRepo').value.trim(),
+              repo_url: newRepo || projRepo,  // Keep original source if blank
               platform: 'ios'
             });
             closeModal();
@@ -421,14 +434,52 @@ export function renderProjects(container) {
 
         const modalHtml = `
           <div id="secretsModalOverlay" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);backdrop-filter:blur(4px);z-index:9999;display:flex;align-items:center;justify-content:center;padding:var(--space-xl);">
-            <div class="card animate-in" style="width:100%;max-width:600px;max-height:80vh;display:flex;flex-direction:column;padding:var(--space-xl);position:relative;overflow:hidden;">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-md);">
-                <h3>Environment Secrets: ${projectName}</h3>
+            <div class="card animate-in" style="width:100%;max-width:700px;max-height:85vh;display:flex;flex-direction:column;padding:var(--space-xl);position:relative;overflow:hidden;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-sm);">
+                <h3 style="margin:0;">🔑 Environment Secrets</h3>
                 <button class="btn btn-ghost btn-sm" id="closeSecretsBtn">✕ Close</button>
               </div>
-              <p style="color:var(--text-tertiary);font-size:0.875rem;margin-bottom:var(--space-lg);">
-                These sensitive environment variables are securely injected into the iOS compilation sandbox and are never exposed in plaintext.
+              <p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:var(--space-sm);line-height:1.5;">
+                Secrets are private values your app needs at build time — like API keys, app names, or version numbers. They're <strong style="color:var(--success);">encrypted</strong> and injected into your build automatically.
               </p>
+              
+              <details style="margin-bottom:var(--space-md);">
+                <summary style="cursor:pointer;color:var(--primary);font-weight:600;font-size:0.8rem;user-select:none;padding:var(--space-xs) 0;">📖 How to use this (click to expand)</summary>
+                <div style="margin-top:var(--space-sm);padding:var(--space-md);background:var(--bg-tertiary);border-radius:var(--radius-md);font-size:0.8rem;line-height:1.8;color:var(--text-tertiary);">
+                  <p style="margin:0 0 var(--space-sm);"><strong style="color:var(--text-secondary);">Step 1:</strong> In the form below, type the variable name on the left (e.g. <code style="background:var(--bg-secondary);padding:2px 6px;border-radius:4px;color:var(--text-primary);">APP_NAME</code>)</p>
+                  <p style="margin:0 0 var(--space-sm);"><strong style="color:var(--text-secondary);">Step 2:</strong> Type its value on the right (e.g. <code style="background:var(--bg-secondary);padding:2px 6px;border-radius:4px;color:var(--text-primary);">MyApp</code>)</p>
+                  <p style="margin:0 0 var(--space-md);"><strong style="color:var(--text-secondary);">Step 3:</strong> Click <strong>Add</strong>. It will appear in the table above the form. Repeat for each variable you need.</p>
+                  
+                  <div style="border:1px solid rgba(239,68,68,0.3);background:rgba(239,68,68,0.05);padding:var(--space-md);border-radius:var(--radius-md);margin-bottom:var(--space-md);">
+                    <p style="margin:0 0 var(--space-xs);color:var(--error);font-weight:700;font-size:0.85rem;">🚨 CRITICAL CODE UPDATE REQUIRED 🚨</p>
+                    <p style="margin:0 0 var(--space-sm);color:var(--text-secondary);">For these secrets to work, you <strong>must</strong> update your Expo configuration file. If your project uses a static <code>app.json</code>, these variables will be ignored!</p>
+                    
+                    <p style="margin:0 0 4px;"><strong style="color:var(--text-primary);">1. Rename:</strong> Change <code>app.json</code> to <code>app.config.js</code></p>
+                    <p style="margin:0 0 4px;"><strong style="color:var(--text-primary);">2. Modify:</strong> Wrap your JSON config to pull from the environment:</p>
+                    
+                    <pre style="background:var(--bg-primary);border:1px solid var(--border-medium);padding:var(--space-sm);border-radius:var(--radius-sm);font-family:var(--font-mono);font-size:0.75rem;overflow-x:auto;margin:var(--space-xs) 0 var(--space-sm);color:var(--text-primary);">
+export default {
+  "name": process.env.APP_NAME || "My Default Name",
+  "version": process.env.APP_VERSION || "1.0.0",
+  // ... the rest of your app config
+}</pre>
+                    <p style="margin:0;font-size:0.75rem;color:var(--text-tertiary);">When you build, BuildCheap replaces <code>process.env.APP_VERSION</code> with the value you set here.</p>
+                  </div>
+
+                  <div style="border-top:1px solid var(--border-light);padding-top:var(--space-sm);margin-top:var(--space-xs);">
+                    <p style="margin:0 0 var(--space-xs);"><strong style="color:var(--text-secondary);">Common variables you might need:</strong></p>
+                    <table style="width:100%;font-size:0.78rem;border-collapse:collapse;">
+                      <tr><td style="padding:3px 0;"><code style="background:var(--bg-secondary);padding:2px 6px;border-radius:4px;color:var(--text-primary);">APP_NAME</code></td><td style="padding:3px 8px;color:var(--text-tertiary);">→</td><td style="padding:3px 0;">Your app's display name (e.g. CalSnap, Florist Pro)</td></tr>
+                      <tr><td style="padding:3px 0;"><code style="background:var(--bg-secondary);padding:2px 6px;border-radius:4px;color:var(--text-primary);">APP_VERSION</code></td><td style="padding:3px 8px;color:var(--text-tertiary);">→</td><td style="padding:3px 0;">Version shown in App Store (e.g. 1.0.1, 2.3.0)</td></tr>
+                      <tr><td style="padding:3px 0;"><code style="background:var(--bg-secondary);padding:2px 6px;border-radius:4px;color:var(--text-primary);">APP_SLUG</code></td><td style="padding:3px 8px;color:var(--text-tertiary);">→</td><td style="padding:3px 0;">URL-safe app identifier (e.g. calsnap, florist-pro)</td></tr>
+                      <tr><td style="padding:3px 0;"><code style="background:var(--bg-secondary);padding:2px 6px;border-radius:4px;color:var(--text-primary);">REVENUECAT_API_KEY</code></td><td style="padding:3px 8px;color:var(--text-tertiary);">→</td><td style="padding:3px 0;">In-app purchase / subscription service key</td></tr>
+                      <tr><td style="padding:3px 0;"><code style="background:var(--bg-secondary);padding:2px 6px;border-radius:4px;color:var(--text-primary);">GOOGLE_MAPS_KEY</code></td><td style="padding:3px 8px;color:var(--text-tertiary);">→</td><td style="padding:3px 0;">Google Maps, Firebase, or other third-party keys</td></tr>
+                      <tr><td style="padding:3px 0;"><code style="background:var(--bg-secondary);padding:2px 6px;border-radius:4px;color:var(--text-primary);">SENTRY_DSN</code></td><td style="padding:3px 8px;color:var(--text-tertiary);">→</td><td style="padding:3px 0;">Crash reporting / error tracking endpoint</td></tr>
+                    </table>
+                  </div>
+                  <p style="margin:var(--space-sm) 0 0;color:var(--warning);font-size:0.75rem;">⚠ Names must be UPPER_CASE with underscores only. Values are encrypted and hidden after saving — you won't be able to see them again, but you can always delete and re-add.</p>
+                </div>
+              </details>
               
               <div style="overflow-y:auto;flex:1;margin-bottom:var(--space-md);">
                 <table class="table" style="width:100%;font-size:0.875rem;">
@@ -441,11 +492,21 @@ export function renderProjects(container) {
                 </table>
               </div>
               
-              <form id="addSecretForm" style="display:flex;gap:var(--space-sm);margin-top:auto;padding-top:var(--space-md);border-top:1px solid var(--border-medium);">
-                <input type="text" id="secretKeyInput" class="input flex-auto" placeholder="API_KEY" required pattern="^[a-zA-Z_][a-zA-Z0-9_]*$" title="Valid shell environment variable name" />
-                <input type="password" id="secretValueInput" class="input flex-auto" placeholder="••••••••" required />
-                <button type="submit" class="btn btn-primary" id="addSecretSubmitBtn">Add</button>
-              </form>
+              <div style="margin-top:auto;padding-top:var(--space-md);border-top:1px solid var(--border-medium);">
+                <div style="display:flex;gap:var(--space-sm);margin-bottom:var(--space-xs);font-size:0.7rem;color:var(--text-tertiary);font-weight:600;">
+                  <span style="flex:1;">VARIABLE NAME</span>
+                  <span style="flex:1;">SECRET VALUE</span>
+                  <span style="width:55px;"></span>
+                </div>
+                <form id="addSecretForm" style="display:flex;gap:var(--space-sm);align-items:center;">
+                  <input type="text" id="secretKeyInput" class="input flex-auto" placeholder="e.g. APP_NAME" required pattern="^[a-zA-Z_][a-zA-Z0-9_]*$" title="Letters, numbers, and underscores only (e.g. APP_NAME)" />
+                  <div style="flex:1;position:relative;display:flex;">
+                    <input type="password" id="secretValueInput" class="input" style="width:100%;padding-right:36px;" placeholder="e.g. MyApp" required />
+                    <button type="button" id="toggleSecretVisibility" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:1rem;color:var(--text-tertiary);padding:2px;" title="Show/hide value">👁️</button>
+                  </div>
+                  <button type="submit" class="btn btn-primary" id="addSecretSubmitBtn">Add</button>
+                </form>
+              </div>
               <div id="secretErrorMsg" style="color:var(--error);font-size:0.875rem;display:none;margin-top:var(--space-xs);"></div>
             </div>
           </div>
@@ -460,10 +521,23 @@ export function renderProjects(container) {
         const valInput = document.getElementById('secretValueInput');
         const submitBtn = document.getElementById('addSecretSubmitBtn');
         const errorMsg = document.getElementById('secretErrorMsg');
+        const toggleVisBtn = document.getElementById('toggleSecretVisibility');
 
         const close = () => overlay.remove();
         closeBtn.addEventListener('click', close);
-        overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+        // Toggle password visibility
+        toggleVisBtn.addEventListener('click', () => {
+          if (valInput.type === 'password') {
+            valInput.type = 'text';
+            toggleVisBtn.textContent = '🙈';
+            toggleVisBtn.title = 'Hide value';
+          } else {
+            valInput.type = 'password';
+            toggleVisBtn.textContent = '👁️';
+            toggleVisBtn.title = 'Show value';
+          }
+        });
 
         async function reloadSecrets() {
           try {

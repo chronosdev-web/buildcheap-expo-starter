@@ -79,16 +79,17 @@ export function renderCli(container) {
           <code style="background:var(--primary);color:white;padding:3px 10px;border-radius:var(--radius-sm);font-weight:700;">buildcheap login</code>
         </div>
         <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:var(--space-md);">
-          Connect the CLI to your BuildCheap server. You'll need your server URL and API key.
+          Connect the CLI to your BuildCheap account. You'll be prompted for your email and password — the CLI will authenticate and save your API key locally.
         </p>
         <div style="background:var(--bg-primary);border-radius:var(--radius-md);padding:var(--space-md);font-family:var(--font-mono);font-size:0.82rem;line-height:1.9;">
-          <span style="color:var(--success);">$</span> buildcheap login<br>
-          <span style="color:var(--cyan,#67e8f9);">ℹ</span> Server URL: <span style="color:var(--text-tertiary);">http://207.254.22.67:3000</span><br>
-          <span style="color:var(--cyan,#67e8f9);">ℹ</span> API Key: <span style="color:var(--text-tertiary);">bc_live_xxxx...</span><br>
-          <span style="color:var(--success);">✔</span> Logged in as <span style="font-weight:700;">John Doe</span>
+          <span style="color:var(--success);">$</span> node buildcheap.js login<br>
+          <span style="color:var(--cyan,#67e8f9);">ℹ</span> Email: <span style="color:var(--text-tertiary);">you@example.com</span><br>
+          <span style="color:var(--cyan,#67e8f9);">ℹ</span> Password: <span style="color:var(--text-tertiary);">••••••••</span><br>
+          <span style="color:var(--success);">✔</span> Logged in as <span style="font-weight:700;">John Doe</span><br>
+          <span style="color:var(--cyan,#67e8f9);">ℹ</span> Config saved to <span style="color:var(--text-tertiary);">~/.buildcheap.json</span>
         </div>
         <div style="margin-top:var(--space-sm);font-size:0.8rem;color:var(--text-tertiary);">
-          💡 <strong>Where is my API Key?</strong> Go to <a href="#/settings" style="color:var(--primary);">Settings</a> → API Keys section. Your key starts with <code>bc_live_</code> or <code>bc_test_</code>.
+          💡 <strong>Credentials are saved to</strong> <code>~/.buildcheap.json</code> in your home directory. You only need to log in once per machine.
         </div>
       </div>
 
@@ -152,7 +153,7 @@ export function renderCli(container) {
       </div>
 
       <!-- Projects -->
-      <div>
+      <div style="margin-bottom:var(--space-xl);padding-bottom:var(--space-xl);border-bottom:1px solid var(--border-subtle);">
         <div style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:var(--space-sm);">
           <code style="background:var(--primary);color:white;padding:3px 10px;border-radius:var(--radius-sm);font-weight:700;">buildcheap projects</code>
         </div>
@@ -160,7 +161,7 @@ export function renderCli(container) {
           List all projects in your BuildCheap account.
         </p>
         <div style="background:var(--bg-primary);border-radius:var(--radius-md);padding:var(--space-md);font-family:var(--font-mono);font-size:0.82rem;line-height:1.9;">
-          <span style="color:var(--success);">$</span> buildcheap projects<br><br>
+          <span style="color:var(--success);">$</span> node buildcheap.js projects<br><br>
           <span style="font-weight:700;">Your Projects:</span><br><br>
           <span style="color:var(--primary);">MyAwesomeApp</span><br>
           &nbsp;&nbsp;ID: c760eaaf...<br>
@@ -168,21 +169,106 @@ export function renderCli(container) {
         </div>
       </div>
 
-      <!-- Credentials -->
+      <!-- Secrets -->
       <div style="margin-bottom:var(--space-xl);padding-bottom:var(--space-xl);border-bottom:1px solid var(--border-subtle);">
+        <div style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:var(--space-sm);">
+          <code style="background:var(--primary);color:white;padding:3px 10px;border-radius:var(--radius-sm);font-weight:700;">buildcheap secrets</code>
+          <span class="badge badge-info" style="font-size:0.7rem;">New</span>
+        </div>
+        <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:var(--space-md);">
+          Manage environment variables (secrets) for your project. Secrets are encrypted and securely injected into your build at compile time. Use them for API keys, app configuration, version numbers, and anything your <code>app.config.js</code> reads from <code>process.env</code>.
+        </p>
+
+        <div style="font-weight:600;font-size:0.875rem;margin-bottom:var(--space-xs);">Sub-commands:</div>
+        <table style="width:100%;font-size:0.85rem;margin-bottom:var(--space-md);">
+          <tr style="border-bottom:1px solid var(--border-subtle);">
+            <td style="padding:8px 0;font-family:var(--font-mono);color:var(--primary);font-weight:600;">secrets</td>
+            <td style="padding:8px 0;color:var(--text-tertiary);">List all secrets for the current project</td>
+          </tr>
+          <tr style="border-bottom:1px solid var(--border-subtle);">
+            <td style="padding:8px 0;font-family:var(--font-mono);color:var(--primary);font-weight:600;">secrets set KEY VALUE</td>
+            <td style="padding:8px 0;color:var(--text-tertiary);">Add or update a secret</td>
+          </tr>
+          <tr>
+            <td style="padding:8px 0;font-family:var(--font-mono);color:var(--primary);font-weight:600;">secrets rm KEY</td>
+            <td style="padding:8px 0;color:var(--text-tertiary);">Remove a secret</td>
+          </tr>
+        </table>
+
+        <div style="font-weight:600;font-size:0.85rem;margin-bottom:var(--space-xs);">Adding secrets:</div>
+        <div style="background:var(--bg-primary);border-radius:var(--radius-md);padding:var(--space-md);font-family:var(--font-mono);font-size:0.82rem;line-height:1.9;margin-bottom:var(--space-md);">
+          <span style="color:var(--text-tertiary);"># Set your app name</span><br>
+          <span style="color:var(--success);">$</span> node buildcheap.js secrets set APP_NAME CalSnap<br>
+          <span style="color:var(--success);">✔</span> Secret <span style="font-weight:700;">APP_NAME</span> saved!<br><br>
+          <span style="color:var(--text-tertiary);"># Set your app version</span><br>
+          <span style="color:var(--success);">$</span> node buildcheap.js secrets set APP_VERSION 1.0.1<br>
+          <span style="color:var(--success);">✔</span> Secret <span style="font-weight:700;">APP_VERSION</span> saved!<br><br>
+          <span style="color:var(--text-tertiary);"># Set an API key for in-app purchases</span><br>
+          <span style="color:var(--success);">$</span> node buildcheap.js secrets set REVENUECAT_API_KEY appl_xxxxxxxxx<br>
+          <span style="color:var(--success);">✔</span> Secret <span style="font-weight:700;">REVENUECAT_API_KEY</span> saved!
+        </div>
+
+        <div style="font-weight:600;font-size:0.85rem;margin-bottom:var(--space-xs);">Listing secrets:</div>
+        <div style="background:var(--bg-primary);border-radius:var(--radius-md);padding:var(--space-md);font-family:var(--font-mono);font-size:0.82rem;line-height:1.9;margin-bottom:var(--space-md);">
+          <span style="color:var(--success);">$</span> node buildcheap.js secrets<br><br>
+          <span style="font-weight:700;">Environment Secrets</span><br><br>
+          <span style="color:var(--text-tertiary);">KEY&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;STATUS</span><br>
+          <span style="color:var(--text-tertiary);">─────────────────────────────────────────────</span><br>
+          <span style="color:var(--primary);">APP_NAME</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--success);">● encrypted</span><br>
+          <span style="color:var(--primary);">APP_VERSION</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--success);">● encrypted</span><br>
+          <span style="color:var(--primary);">REVENUECAT_API_KEY</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--success);">● encrypted</span><br><br>
+          <span style="color:var(--text-tertiary);">3 secret(s) configured. These will be injected at build time.</span>
+        </div>
+
+        <div style="font-weight:600;font-size:0.85rem;margin-bottom:var(--space-xs);">Removing a secret:</div>
+        <div style="background:var(--bg-primary);border-radius:var(--radius-md);padding:var(--space-md);font-family:var(--font-mono);font-size:0.82rem;line-height:1.9;margin-bottom:var(--space-md);">
+          <span style="color:var(--success);">$</span> node buildcheap.js secrets rm APP_VERSION<br>
+          <span style="color:var(--success);">✔</span> Secret <span style="font-weight:700;">APP_VERSION</span> removed.
+        </div>
+
+        <div style="margin-top:var(--space-md);padding:var(--space-md);border:1px solid rgba(239,68,68,0.3);background:rgba(239,68,68,0.05);border-radius:var(--radius-md);">
+          <p style="margin:0 0 var(--space-xs);color:var(--error);font-weight:700;font-size:0.85rem;">🚨 CRITICAL CODE UPDATE REQUIRED 🚨</p>
+          <p style="margin:0 0 var(--space-sm);color:var(--text-secondary);">For these secrets to work, you <strong>must</strong> update your Expo configuration file. If your project uses a static <code>app.json</code>, these variables will be ignored!</p>
+          <p style="margin:0 0 4px;"><strong style="color:var(--text-primary);">1. Rename:</strong> Change <code>app.json</code> to <code>app.config.js</code></p>
+          <p style="margin:0 0 4px;"><strong style="color:var(--text-primary);">2. Modify:</strong> Wrap your JSON config to pull from the environment:</p>
+          <pre style="background:var(--bg-primary);border:1px solid var(--border-medium);padding:var(--space-sm);border-radius:var(--radius-sm);font-family:var(--font-mono);font-size:0.75rem;overflow-x:auto;margin:var(--space-xs) 0 var(--space-sm);color:var(--text-primary);">
+export default {
+  "name": process.env.APP_NAME || "My Default Name",
+  "version": process.env.APP_VERSION || "1.0.0",
+  // ... the rest of your app config
+}</pre>
+          <p style="margin:0;font-size:0.75rem;color:var(--text-tertiary);">When you run <code>buildcheap build</code>, the BuildCheap server automatically replaces <code>process.env.APP_VERSION</code> with the value you added via the CLI.</p>
+        </div>
+
+        <div style="margin-top:var(--space-md);padding:var(--space-md);background:rgba(99,102,241,0.08);border-radius:var(--radius-md);border:1px solid rgba(99,102,241,0.2);">
+          <div style="font-weight:700;font-size:0.85rem;margin-bottom:var(--space-xs);">💡 Common secrets you might need:</div>
+          <table style="width:100%;font-size:0.8rem;">
+            <tr><td style="padding:3px 0;font-family:var(--font-mono);color:var(--primary);font-weight:600;">APP_NAME</td><td style="padding:3px 8px;">→</td><td style="color:var(--text-tertiary);">Your app's display name</td></tr>
+            <tr><td style="padding:3px 0;font-family:var(--font-mono);color:var(--primary);font-weight:600;">APP_VERSION</td><td style="padding:3px 8px;">→</td><td style="color:var(--text-tertiary);">Version shown in the App Store (e.g. 1.0.1)</td></tr>
+            <tr><td style="padding:3px 0;font-family:var(--font-mono);color:var(--primary);font-weight:600;">APP_SLUG</td><td style="padding:3px 8px;">→</td><td style="color:var(--text-tertiary);">URL-safe identifier (e.g. my-app)</td></tr>
+            <tr><td style="padding:3px 0;font-family:var(--font-mono);color:var(--primary);font-weight:600;">REVENUECAT_API_KEY</td><td style="padding:3px 8px;">→</td><td style="color:var(--text-tertiary);">In-app purchase / subscription key</td></tr>
+            <tr><td style="padding:3px 0;font-family:var(--font-mono);color:var(--primary);font-weight:600;">GOOGLE_MAPS_KEY</td><td style="padding:3px 8px;">→</td><td style="color:var(--text-tertiary);">Google Maps or Firebase keys</td></tr>
+            <tr><td style="padding:3px 0;font-family:var(--font-mono);color:var(--primary);font-weight:600;">SENTRY_DSN</td><td style="padding:3px 8px;">→</td><td style="color:var(--text-tertiary);">Crash reporting endpoint</td></tr>
+          </table>
+          <div style="margin-top:var(--space-sm);font-size:0.78rem;color:var(--text-tertiary);">These secrets become available as <code>process.env.KEY_NAME</code> during <code>expo prebuild</code>. If your <code>app.config.js</code> reads <code>process.env.APP_NAME</code>, set it here.</div>
+        </div>
+      </div>
+
+      <!-- Credentials -->
+      <div>
         <div style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:var(--space-sm);">
           <code style="background:var(--primary);color:white;padding:3px 10px;border-radius:var(--radius-sm);font-weight:700;">buildcheap credentials</code>
         </div>
         <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:var(--space-md);">
           Connect your App Store Connect API Key from the terminal. The CLI reads your <code>.p8</code> file directly from disk — no copy-paste needed.<br><br>
           <strong>How to get your API Key:</strong><br>
-          1. Log into App Store Connect → Users and Access → Integrations → App Store Connect API.<br>
+          1. Log into <a href="https://appstoreconnect.apple.com" target="_blank" style="color:var(--primary);">App Store Connect</a> → Users and Access → Integrations → App Store Connect API.<br>
           2. Click <strong>+</strong> to generate a new key (requires App Manager or Admin role).<br>
           3. Click <strong>Download API Key</strong> to save the <code>.p8</code> file to your computer.<br>
-          4. Your Issuer ID is shown at the top of the page.
+          4. Note your <strong>Issuer ID</strong> shown at the top of the page.
         </p>
         <div style="background:var(--bg-primary);border-radius:var(--radius-md);padding:var(--space-md);font-family:var(--font-mono);font-size:0.82rem;line-height:1.9;">
-          <span style="color:var(--success);">$</span> buildcheap credentials<br><br>
+          <span style="color:var(--success);">$</span> node buildcheap.js credentials<br><br>
           <span style="color:var(--green,#4ade80);">Found 2 .p8 files on your machine:</span><br><br>
           &nbsp;&nbsp;<span style="color:var(--cyan,#67e8f9);">[1]</span> AuthKey_ABC123DEF4.p8 <span style="color:var(--text-tertiary);">(~/Downloads/)</span><br>
           &nbsp;&nbsp;<span style="color:var(--cyan,#67e8f9);">[2]</span> AuthKey_XYZ789GHI0.p8 <span style="color:var(--text-tertiary);">(~/Desktop/)</span><br>
@@ -195,26 +281,10 @@ export function renderCli(container) {
           <span style="color:var(--success);">✔</span> App Store Connect credentials saved!
         </div>
         <div style="margin-top:var(--space-sm);font-size:0.8rem;color:var(--text-tertiary);">
-          💡 <strong>Tip:</strong> The CLI auto-searches your Downloads, Desktop, and home folder for <code>.p8</code> files. The Key ID is automatically extracted from the filename — you only need to enter your Issuer ID.
+          💡 <strong>Tip:</strong> The CLI auto-searches Downloads, Desktop, and your home folder for <code>.p8</code> files. The Key ID is extracted from the filename automatically.
         </div>
       </div>
-
-      <!-- Projects -->
-      <div>
-        <div style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:var(--space-sm);">
-          <code style="background:var(--primary);color:white;padding:3px 10px;border-radius:var(--radius-sm);font-weight:700;">buildcheap projects</code>
-        </div>
-        <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:var(--space-md);">
-          List all projects in your BuildCheap account.
-        </p>
-        <div style="background:var(--bg-primary);border-radius:var(--radius-md);padding:var(--space-md);font-family:var(--font-mono);font-size:0.82rem;line-height:1.9;">
-          <span style="color:var(--success);">$</span> buildcheap projects<br><br>
-          <span style="font-weight:700;">Your Projects:</span><br><br>
-          <span style="color:var(--primary);">MyAwesomeApp</span><br>
-          &nbsp;&nbsp;ID: c760eaaf...<br>
-          &nbsp;&nbsp;Platform: ios<br>
-        </div>
-      </div>
+    </div>
 
     <!-- How It Works -->
     <div class="card" style="padding:var(--space-xl);margin-bottom:var(--space-xl);">

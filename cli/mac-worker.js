@@ -293,15 +293,53 @@ async function processJob(job) {
         // Step 3: Expo Prebuild
         streamLog(job.id, '[Remote Agent] Running expo prebuild...');
         const appJsonPath = path.join(workDir, 'app.json');
+        const appConfigJsPath = path.join(workDir, 'app.config.js');
+        const appConfigTsPath = path.join(workDir, 'app.config.ts');
+
         if (fs.existsSync(appJsonPath)) {
+            // Static app.json — inject build overrides directly
             let appJson = JSON.parse(fs.readFileSync(appJsonPath, 'utf8'));
             appJson.expo = appJson.expo || {};
             appJson.expo.ios = appJson.expo.ios || {};
             appJson.expo.ios.buildNumber = job.build_number.toString();
             if (job.bundle_id) appJson.expo.ios.bundleIdentifier = job.bundle_id;
             fs.writeFileSync(appJsonPath, JSON.stringify(appJson, null, 2));
+        } else if (fs.existsSync(appConfigJsPath) || fs.existsSync(appConfigTsPath)) {
+            // Dynamic app.config.js/ts — Expo merges app.json into dynamic config when both exist.
+            // Create a companion app.json with build number/bundle ID overrides.
+            streamLog(job.id, '[Remote Agent] Detected dynamic config (app.config.js). Generating companion app.json with build overrides...');
+            const overrides = {
+                expo: {
+                    ios: { buildNumber: job.build_number.toString() },
+                    android: { versionCode: job.build_number }
+                }
+            };
+            if (job.bundle_id) {
+                overrides.expo.ios.bundleIdentifier = job.bundle_id;
+                overrides.expo.android.package = job.bundle_id;
+            }
+            fs.writeFileSync(appJsonPath, JSON.stringify(overrides, null, 2));
         }
-        await runCommand('yarn', ['expo', 'prebuild', '--platform', 'ios', '--no-install'], workDir, job.id, { HOME: sandboxHome });
+
+        // Build env vars from project secrets so dynamic configs (app.config.js) can read them
+        const buildEnv = { HOME: sandboxHome };
+        const appleKeyNames = new Set([
+            'apple_issuer_id', 'apple_key_id', 'apple_private_key', 'apple_team_id',
+            'APPLE_ISSUER_ID', 'APPLE_KEY_ID', 'APPLE_P8', 'APPLE_TEAM_ID'
+        ]);
+        if (job.secrets) {
+            for (const [key, value] of Object.entries(job.secrets)) {
+                if (!appleKeyNames.has(key) && value) {
+                    buildEnv[key] = value;
+                }
+            }
+            const injectedKeys = Object.keys(buildEnv).filter(k => k !== 'HOME');
+            if (injectedKeys.length > 0) {
+                streamLog(job.id, `[Remote Agent] Injecting ${injectedKeys.length} project secret(s) into build environment: ${injectedKeys.join(', ')}`);
+            }
+        }
+
+        await runCommand('yarn', ['expo', 'prebuild', '--platform', 'ios', '--no-install'], workDir, job.id, buildEnv);
 
         // Step 4: CocoaPods
         streamLog(job.id, '[Remote Agent] Installing CocoaPods...');
@@ -320,6 +358,25 @@ async function processJob(job) {
                 actualBundleId = appJson.expo?.ios?.bundleIdentifier;
             }
         } catch (e) { }
+        // Fallback: try reading app.config.js by evaluating it (for bundleIdentifier with env var defaults)
+        if (!actualBundleId && (fs.existsSync(path.join(workDir, 'app.config.js')) || fs.existsSync(path.join(workDir, 'app.config.ts')))) {
+            try {
+                const configContent = fs.readFileSync(path.join(workDir, 'app.config.js'), 'utf8');
+                const bundleMatch = configContent.match(/bundleIdentifier[:\s]*['"]([^'"]+)['"]/);
+                if (bundleMatch && bundleMatch[1] && !bundleMatch[1].includes('process.env')) {
+                    actualBundleId = bundleMatch[1];
+                    streamLog(job.id, `[Remote Agent] Extracted bundle ID from app.config.js: ${actualBundleId}`);
+                }
+                // Also try the fallback default pattern: process.env.X || "value"
+                if (!actualBundleId) {
+                    const fallbackMatch = configContent.match(/bundleIdentifier[:\s]*(?:process\.env\.[\w]+\s*\|\|\s*)['"]([^'"]+)['"]/);
+                    if (fallbackMatch && fallbackMatch[1]) {
+                        actualBundleId = fallbackMatch[1];
+                        streamLog(job.id, `[Remote Agent] Extracted fallback bundle ID from app.config.js: ${actualBundleId}`);
+                    }
+                }
+            } catch (e) { }
+        }
         // Fallback: read from .env file (Expo projects often store IOS_BUNDLE_ID there)
         if (!actualBundleId) {
             try {

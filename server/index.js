@@ -124,6 +124,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // Protected routes
+app.use("/api/projects/:id/secrets", authMiddleware, secretRoutes);
 app.use('/api/auth/me', authMiddleware);
 app.use('/api/projects', authMiddleware, projectRoutes);
 app.use('/api/builds', authMiddleware, buildRoutes);
@@ -131,7 +132,6 @@ app.use('/api/credits', authMiddleware, creditRoutes);
 app.use('/api/credentials', authMiddleware, credentialRoutes);
 app.use('/api/projects', authMiddleware, uploadRoutes);
 app.use('/api/webhooks', authMiddleware, webhookRoutes);
-app.use('/api/projects/:id/secrets', authMiddleware, secretRoutes);
 app.use('/api/orgs', authMiddleware, orgRoutes);
 app.use('/api/support', authMiddleware, supportRoutes);
 

@@ -808,6 +808,151 @@ async function cmdCredentials() {
     }
 }
 
+async function cmdSecrets(args) {
+    const config = loadConfig();
+    if (!config.server || !config.apiKey) {
+        error('Not logged in. Run: buildcheap login');
+        process.exit(1);
+    }
+
+    // Resolve project ID
+    let projectId = args.project;
+    if (!projectId) {
+        const localConfig = path.join(process.cwd(), 'buildcheap.json');
+        if (fs.existsSync(localConfig)) {
+            try {
+                const lc = JSON.parse(fs.readFileSync(localConfig, 'utf-8'));
+                projectId = lc.project_id;
+            } catch { }
+        }
+    }
+
+    if (!projectId) {
+        // Interactive: let user pick a project
+        try {
+            const data = await apiRequest(config, 'GET', '/projects');
+            if (!data.projects || data.projects.length === 0) {
+                error('No projects found. Create one first: buildcheap init');
+                process.exit(1);
+            }
+            log('');
+            log(bold('  Select a project:\n'));
+            data.projects.forEach((p, i) => {
+                log(`  ${COLORS.cyan}[${i + 1}]${COLORS.reset} ${p.name} ${dim(`(${p.id.slice(0, 8)}...)`)}`);
+            });
+            log('');
+            const choice = await askQuestion(`  Enter number (1-${data.projects.length}): `);
+            const idx = parseInt(choice) - 1;
+            if (idx < 0 || idx >= data.projects.length) {
+                error('Invalid selection');
+                process.exit(1);
+            }
+            projectId = data.projects[idx].id;
+        } catch (err) {
+            error(`Failed to list projects: ${err.message}`);
+            process.exit(1);
+        }
+    }
+
+    const subCommand = args._[1]; // set, rm/remove/delete, or undefined (list)
+
+    if (subCommand === 'set' || subCommand === 'add') {
+        // buildcheap secrets set KEY VALUE
+        const keyName = args._[2];
+        const value = args._[3];
+
+        if (!keyName || !value) {
+            banner();
+            log(bold('  Usage:\n'));
+            log(`    ${COLORS.cyan}buildcheap secrets set${COLORS.reset} KEY VALUE`);
+            log('');
+            log(bold('  Examples:\n'));
+            log(`    ${COLORS.cyan}buildcheap secrets set${COLORS.reset} APP_NAME MyApp`);
+            log(`    ${COLORS.cyan}buildcheap secrets set${COLORS.reset} APP_VERSION 1.0.1`);
+            log(`    ${COLORS.cyan}buildcheap secrets set${COLORS.reset} REVENUECAT_API_KEY appl_xxxxxxxxxxx`);
+            log('');
+            process.exit(1);
+        }
+
+        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(keyName)) {
+            error(`Invalid variable name: "${keyName}". Use UPPER_CASE with underscores (e.g. APP_NAME).`);
+            process.exit(1);
+        }
+
+        try {
+            await apiRequest(config, 'POST', `/projects/${projectId}/secrets`, {
+                key_name: keyName,
+                value: value,
+            });
+            success(`Secret ${bold(keyName)} saved! It will be injected into your next build.`);
+        } catch (err) {
+            error(`Failed to save secret: ${err.message}`);
+            process.exit(1);
+        }
+
+    } else if (subCommand === 'rm' || subCommand === 'remove' || subCommand === 'delete') {
+        // buildcheap secrets rm KEY
+        const keyName = args._[2];
+        if (!keyName) {
+            error('Usage: buildcheap secrets rm KEY_NAME');
+            process.exit(1);
+        }
+
+        try {
+            const data = await apiRequest(config, 'GET', `/projects/${projectId}/secrets`);
+            const secret = (data.secrets || []).find(s => s.key_name === keyName);
+            if (!secret) {
+                error(`Secret "${keyName}" not found.`);
+                const existing = (data.secrets || []).map(s => s.key_name);
+                if (existing.length > 0) {
+                    info(`Existing secrets: ${existing.join(', ')}`);
+                }
+                process.exit(1);
+            }
+            await apiRequest(config, 'DELETE', `/projects/${projectId}/secrets/${secret.id}`);
+            success(`Secret ${bold(keyName)} removed.`);
+        } catch (err) {
+            error(`Failed to delete secret: ${err.message}`);
+            process.exit(1);
+        }
+
+    } else {
+        // Default: list all secrets
+        banner();
+        log(bold('  Environment Secrets\n'));
+
+        try {
+            const data = await apiRequest(config, 'GET', `/projects/${projectId}/secrets`);
+            const secrets = data.secrets || [];
+
+            if (secrets.length === 0) {
+                log(dim('  No secrets configured for this project.\n'));
+                log(`  Add one with: ${COLORS.cyan}buildcheap secrets set KEY VALUE${COLORS.reset}`);
+                log('');
+                log(bold('  Common variables:\n'));
+                log(`    ${COLORS.cyan}buildcheap secrets set${COLORS.reset} APP_NAME      ${dim('Your app display name')}`);
+                log(`    ${COLORS.cyan}buildcheap secrets set${COLORS.reset} APP_VERSION   ${dim('Version (e.g. 1.0.1)')}`);
+                log(`    ${COLORS.cyan}buildcheap secrets set${COLORS.reset} APP_SLUG      ${dim('URL-safe name (e.g. my-app)')}`);
+                log(`    ${COLORS.cyan}buildcheap secrets set${COLORS.reset} REVENUECAT_API_KEY  ${dim('IAP service key')}`);
+                log('');
+            } else {
+                log(`  ${dim('KEY')}${' '.repeat(28)}${dim('STATUS')}`);
+                log(`  ${'─'.repeat(45)}`);
+                for (const s of secrets) {
+                    const padding = ' '.repeat(Math.max(1, 30 - s.key_name.length));
+                    log(`  ${COLORS.cyan}${s.key_name}${COLORS.reset}${padding}${COLORS.green}● encrypted${COLORS.reset}`);
+                }
+                log('');
+                log(`  ${dim(`${secrets.length} secret(s) configured. These will be injected at build time.`)}`);
+                log('');
+            }
+        } catch (err) {
+            error(`Failed to fetch secrets: ${err.message}`);
+            process.exit(1);
+        }
+    }
+}
+
 // ── CLI Entry ───────────────────────────────────
 function parseArgs(argv) {
     const args = { _: [] };
@@ -835,7 +980,13 @@ function printHelp() {
     log(`    ${COLORS.cyan}init${COLORS.reset}        Initialize a project in this directory`);
     log(`    ${COLORS.cyan}projects${COLORS.reset}    List your projects`);
     log(`    ${COLORS.cyan}build${COLORS.reset}       Compress, upload, and build your project`);
+    log(`    ${COLORS.cyan}secrets${COLORS.reset}     Manage environment variables for your project`);
     log(`    ${COLORS.cyan}credentials${COLORS.reset} Connect your App Store Connect API key`);
+    log('');
+    log(bold('  Secrets:\n'));
+    log(`    ${COLORS.cyan}buildcheap secrets${COLORS.reset}                  List all secrets`);
+    log(`    ${COLORS.cyan}buildcheap secrets set${COLORS.reset} KEY VALUE   Add or update a secret`);
+    log(`    ${COLORS.cyan}buildcheap secrets rm${COLORS.reset} KEY          Remove a secret`);
     log('');
     log(bold('  Build Options:\n'));
     log(`    ${dim('--platform')} ios|android    Target platform (default: ios)`);
@@ -844,7 +995,8 @@ function printHelp() {
     log(bold('  Workflow:\n'));
     log(`    ${dim('1.')} ${COLORS.cyan}buildcheap login${COLORS.reset}                    Connect to your server`);
     log(`    ${dim('2.')} ${COLORS.cyan}buildcheap init${COLORS.reset}                     Create a new project`);
-    log(`    ${dim('3.')} ${COLORS.cyan}buildcheap build --platform ios${COLORS.reset}     Ship it!`);
+    log(`    ${dim('3.')} ${COLORS.cyan}buildcheap secrets set${COLORS.reset} APP_NAME MyApp  Configure your build`);
+    log(`    ${dim('4.')} ${COLORS.cyan}buildcheap build --platform ios${COLORS.reset}     Ship it!`);
     log('');
 }
 
@@ -869,6 +1021,10 @@ async function main() {
         case 'credentials':
         case 'creds':
             await cmdCredentials();
+            break;
+        case 'secrets':
+        case 'env':
+            await cmdSecrets(args);
             break;
         case 'help':
         case '--help':
