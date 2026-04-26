@@ -53,7 +53,7 @@ export function renderBuilds(container) {
     </div>
     
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-xl);min-width:0;">
-      <div id="buildsListCol" style="min-width:0;">
+      <div id="buildsListCol" style="min-width:0; max-height: calc(100vh - 180px); overflow-y: auto; padding-right: var(--space-md);">
         <div style="display:flex;align-items:center;justify-content:center;min-height:300px;"><div class="spinner" style="width:32px;height:32px;"></div></div>
       </div>
       
