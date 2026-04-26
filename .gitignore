@@ -2,6 +2,8 @@ node_modules/
 dist/
 .env
 buildcheap.db
+buildcheap.db-shm
+buildcheap.db-wal
 artifacts/
 *.log
 .DS_Store
