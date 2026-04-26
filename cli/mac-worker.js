@@ -343,7 +343,7 @@ async function processJob(job) {
 
         // Step 4: CocoaPods
         streamLog(job.id, '[Remote Agent] Installing CocoaPods...');
-        await runCommand('pod', ['install'], path.join(workDir, 'ios'), job.id);
+        await runCommand('pod', ['install', '--repo-update'], path.join(workDir, 'ios'), job.id);
 
         const iosDir = path.join(workDir, 'ios');
         const workspace = fs.readdirSync(iosDir).find(f => f.endsWith('.xcworkspace'));
